@@ -5,8 +5,8 @@ go 1.24.0
 require (
 	github.com/alitto/pond/v2 v2.5.0
 	github.com/go-playground/form/v4 v4.2.1
-	github.com/stretchr/testify v1.10.0
-	go.inout.gg/foundations v0.0.0-20250808175114-bcc385b29ad2
+	github.com/stretchr/testify v1.11.1
+	go.inout.gg/foundations v0.0.0-20250914201037-56ca2698a3c8
 	go.uber.org/mock v0.5.2
 )
 
