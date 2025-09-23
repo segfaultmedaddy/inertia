@@ -7,35 +7,28 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"mime"
 	"net/http"
-	"reflect"
-	"strings"
 
 	"github.com/go-playground/form/v4"
-	"github.com/go-playground/locales/en"
-	ut "github.com/go-playground/universal-translator"
-	"github.com/go-playground/validator/v10"
-	ven "github.com/go-playground/validator/v10/translations/en"
 	"go.inout.gg/foundations/debug"
 	"go.inout.gg/foundations/http/httperror"
 	"go.inout.gg/foundations/http/httpmiddleware"
 	"go.inout.gg/foundations/must"
 
 	"go.inout.gg/inertia"
-	"go.inout.gg/inertia/contrib/inertiavalidationerrors"
 	"go.inout.gg/inertia/internal/inertiaheader"
 	"go.inout.gg/inertia/internal/inertiaredirect"
 )
 
 var d = debug.Debuglog("inertiaframe") //nolint:gochecknoglobals
 
-var (
-	DefaultValidator   = validator.New(validator.WithRequiredStructEnabled()) //nolint:gochecknoglobals
-	DefaultFormDecoder = form.NewDecoder()                                    //nolint:gochecknoglobals
-)
+var DefaultFormDecoder = form.NewDecoder() //nolint:gochecknoglobals
+
+var ErrEmptyResponse = errors.New("inertiaframe: empty response")
 
 var (
 	_ RawResponseWriter = (*redirectMessage)(nil)
@@ -107,12 +100,6 @@ var DefaultErrorHandler httperror.ErrorHandler = httperror.ErrorHandlerFunc(
 			return
 		}
 
-		errorer, ok := inertiavalidationerrors.FromValidationErrors(err, defaultTranslator)
-		if ok {
-			DefaultValidationErrorHandler(w, r, errorer)
-			return
-		}
-
 		httperror.DefaultErrorHandler(w, r, err)
 	},
 )
@@ -123,43 +110,16 @@ const (
 	mediaTypeMultipart = "multipart/form-data"
 )
 
-var (
-	defaultLocale            = en.New()              //nolint:gochecknoglobals
-	defaultTranslationBundle = ut.New(defaultLocale) //nolint:gochecknoglobals
-
-	//nolint:gochecknoglobals
-	defaultTranslator, _ = defaultTranslationBundle.GetTranslator(
-		defaultLocale.Locale(),
-	)
-)
-
-//nolint:gochecknoinits
-func init() {
-	must.Must1(ven.RegisterDefaultTranslations(DefaultValidator, defaultTranslator))
-
-	DefaultValidator.RegisterTagNameFunc(func(fld reflect.StructField) string {
-		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
-		if name == "-" || name == "" {
-			return ""
-		}
-
-		return name
-	})
-}
-
-// DefaultTranslator returns the default translator that always uses
-// the default locale - English (en).
-func DefaultTranslator(_ context.Context) ut.Translator {
-	t, _ := defaultTranslationBundle.GetTranslator(defaultLocale.Locale())
-	return t
-}
-
 // Request is a request sent by a client.
 type Request[M any] struct {
 	// Message is a decoded message sent by a client.
 	//
 	// Message can implement RawRequestExtractor to intercept request data extraction.
 	Message *M
+}
+
+func newRequest[M any](m M) *Request[M] {
+	return &Request[M]{Message: &m}
 }
 
 // Response is a response sent by a server to a client.
@@ -324,6 +284,11 @@ type Meta struct {
 	Path string
 }
 
+// Validate validates the given data using the.
+type Validator interface {
+	Validate(any) error
+}
+
 type Endpoint[R any] interface {
 	// Execute executes the endpoint for the given request.
 	//
@@ -346,23 +311,11 @@ type Mux interface {
 }
 
 type MountOpts struct {
-	// Middleware is the middleware used to handle requests.
-	// If Middleware is nil, no middleware will be used.
-	Middleware httpmiddleware.Middleware
-
-	// Validator is the validator used to validate the request data.
-	// If Validator is nil, the DefaultValidator will be used.
-	Validator *validator.Validate
-
-	// FormDecoder is the decoder used to parse incoming request data
-	// when the request type is application/x-www-form-urlencoded or
-	// multipart/form-data.
-	// If FormDecoder is nil, the DefaultFormDecoder will be used.
-	FormDecoder *form.Decoder
-
-	// ErrorHandler is the error handler used to handle errors.
-	// If ErrorHandler is nil, the DefaultErrorHandler will be used.
-	ErrorHandler httperror.ErrorHandler
+	Middleware           httpmiddleware.Middleware
+	Validator            Validator
+	ErrorHandler         httperror.ErrorHandler
+	FormDecoder          *form.Decoder
+	JSONUnmarshalOptions []json.Options
 }
 
 // Mount mounts the executor on the given mux.
@@ -381,7 +334,6 @@ func Mount[M any](mux Mux, e Endpoint[M], opts *MountOpts) {
 	}
 
 	opts.ErrorHandler = cmp.Or(opts.ErrorHandler, DefaultErrorHandler)
-	opts.Validator = cmp.Or(opts.Validator, DefaultValidator)
 	opts.FormDecoder = cmp.Or(opts.FormDecoder, DefaultFormDecoder)
 
 	debug.Assert(e != nil, "Executor must not be nil")
@@ -397,7 +349,7 @@ func Mount[M any](mux Mux, e Endpoint[M], opts *MountOpts) {
 
 	d("Mounting executor on pattern: %s", pattern)
 
-	h := newHandler(e, opts.ErrorHandler, opts.Validator, opts.FormDecoder)
+	h := newHandler(e, opts.ErrorHandler, opts.Validator, opts.FormDecoder, opts.JSONUnmarshalOptions)
 	if opts.Middleware != nil {
 		h = opts.Middleware.Middleware(h)
 	}
@@ -409,8 +361,9 @@ func Mount[M any](mux Mux, e Endpoint[M], opts *MountOpts) {
 func newHandler[M any](
 	endpoint Endpoint[M],
 	errorHandler httperror.ErrorHandler,
-	validate *validator.Validate,
+	validator Validator,
 	formDecoder *form.Decoder,
+	jsonUnmarshalOptions []json.Options,
 ) http.Handler {
 	handleError := httperror.WithErrorHandler(errorHandler)
 
@@ -439,7 +392,7 @@ func newHandler[M any](
 				{
 					d("received JSON request")
 
-					if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+					if err := jsonv2.UnmarshalRead(r.Body, &msg, jsonUnmarshalOptions...); err != nil {
 						return fmt.Errorf("inertiaframe: failed to decode request: %w", err)
 					}
 				}
@@ -458,15 +411,15 @@ func newHandler[M any](
 			}
 		}
 
-		if err := validate.StructCtx(ctx, &msg); err != nil {
-			d("failed to validate request")
+		if validator != nil {
+			if err := validator.Validate(&msg); err != nil {
+				d("failed to validate request")
 
-			return fmt.Errorf("inertiaframe: failed to validate request: %w", err)
+				return fmt.Errorf("inertiaframe: failed to validate request: %w", err)
+			}
 		}
 
-		req := &Request[M]{Message: &msg}
-
-		resp, err := endpoint.Execute(ctx, req)
+		resp, err := endpoint.Execute(ctx, newRequest(msg))
 		if err != nil {
 			return fmt.Errorf("inertiaframe: failed to execute: %w", err)
 		}
@@ -474,7 +427,7 @@ func newHandler[M any](
 		if resp == nil {
 			d("received empty response")
 
-			return errors.New("inertiaframe: empty response")
+			return ErrEmptyResponse
 		}
 
 		if writer, ok := resp.m.(RawResponseWriter); ok {
