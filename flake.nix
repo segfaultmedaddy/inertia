@@ -61,6 +61,7 @@
               gotools
               gcc
               golangci-lint
+              mockgen
 
               nodejs
             ];

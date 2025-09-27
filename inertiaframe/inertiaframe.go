@@ -1,4 +1,4 @@
-// inertiaframe implements an opinionated framework around Go's HTTP and Inertia
+// Package inertiaframe implements an opinionated framework around Go's HTTP and Inertia
 // library, abstracting out protocol-level details and providing a simple
 // message-based API.
 package inertiaframe
@@ -6,12 +6,12 @@ package inertiaframe
 import (
 	"cmp"
 	"context"
-	"github.com/go-json-experiment/json"
 	"errors"
 	"fmt"
 	"mime"
 	"net/http"
 
+	"github.com/go-json-experiment/json"
 	"github.com/go-playground/form/v4"
 	"go.inout.gg/foundations/debug"
 	"go.inout.gg/foundations/http/httperror"
@@ -123,55 +123,6 @@ func newRequest[M any](m M) *Request[M] {
 	return &Request[M]{Message: &m}
 }
 
-// NewStructResponse creates a new response from a struct annotated with inertia tags.
-//
-// The struct must implement the Message interface.
-func NewStructResponse(m any, component string, opts ...ResponseOption) (Response, error) {
-	proper, err := inertia.ParseStruct(m)
-	if err != nil {
-		return nil, fmt.Errorf("inertiaframe: failed to parse props: %w", err)
-	}
-
-	var options ResponseOptions
-	if len(opts) > 0 {
-		for _, opt := range opts {
-			opt(&options)
-		}
-	}
-
-	return &resp{proper, component, options}, nil
-}
-
-// NewProperResponse creates a new response from an inertia.NewProperResponse.
-//
-// Optional opts can be provided to customize the response.
-func NewProperResponse(proper inertia.Proper, component string, opts ...ResponseOption) (Response, error) {
-	var options ResponseOptions
-	if len(opts) > 0 {
-		for _, opt := range opts {
-			opt(&options)
-		}
-	}
-
-	options.defaults()
-
-	return &resp{proper, component, options}, nil
-}
-
-// resp represents a response to an Inertia request.
-//
-// It is a helper that implements the Response interface and is used
-// to create a response from a struct or an inertia.Proper.
-type resp struct {
-	proper    inertia.Proper
-	component string
-	opts      ResponseOptions
-}
-
-func (r *resp) Component() string        { return r.component }
-func (r *resp) Proper() inertia.Proper   { return r.proper }
-func (r *resp) Options() ResponseOptions { return r.opts }
-
 // ResponseOptions is a configuration for inertia response.
 type ResponseOptions struct {
 	// ClearHistory determines whether the history should be cleared by
@@ -193,62 +144,6 @@ func (opt *ResponseOptions) defaults() {
 
 // ResponseOption is used to configure inertia response.
 type ResponseOption func(*ResponseOptions)
-
-// ResponseOptioner is an additional interface to Response that if implemented
-// will be used to configure the response.
-type ResponseOptioner interface {
-	Options() ResponseOptions
-}
-
-type externalRedirectMessage struct{ url string }
-
-func (m *externalRedirectMessage) Proper() inertia.Proper { return nil }
-func (m *externalRedirectMessage) Component() string      { return "" }
-
-func (m *externalRedirectMessage) Write(w http.ResponseWriter, r *http.Request) error {
-	inertia.Location(w, r, m.url)
-	return nil
-}
-
-// NewExternalRedirectResponse creates a new response that redirects the client to an
-// external URL.
-//
-// External URL is any URL that is not powered by Inertia.js.
-func NewExternalRedirectResponse(url string) Response {
-	return &externalRedirectMessage{url: url}
-}
-
-type redirectBackMessage struct{}
-
-func (m *redirectBackMessage) Proper() inertia.Proper { return nil }
-func (m *redirectBackMessage) Component() string      { return "" }
-
-func (m *redirectBackMessage) Write(w http.ResponseWriter, r *http.Request) error {
-	RedirectBack(w, r)
-	return nil
-}
-
-// NewRedirectBackResponse creates a new response that redirects the client
-// back to the previous page.
-func NewRedirectBackResponse() Response {
-	return &redirectBackMessage{}
-}
-
-type redirectMessage struct{ url string }
-
-func (m *redirectMessage) Proper() inertia.Proper { return nil }
-func (m *redirectMessage) Component() string      { return "" }
-
-func (m *redirectMessage) Write(w http.ResponseWriter, r *http.Request) error {
-	inertiaredirect.Redirect(w, r, m.url)
-	return nil
-}
-
-// NewRedirectResponse creates a new response that redirects the client to the
-// specified URL.
-func NewRedirectResponse(url string) Response {
-	return &redirectMessage{url: url}
-}
 
 // Response is an interface that represents a response message.
 // It guides the client to render a component or redirect to a
@@ -275,6 +170,109 @@ type Response interface {
 	Proper() inertia.Proper
 }
 
+// NewStructResponse creates a new response from a struct annotated with inertia tags.
+//
+// The struct must implement the Message interface.
+func NewStructResponse(component string, m any, opts ...ResponseOption) (Response, error) {
+	proper, err := inertia.ParseStruct(m)
+	if err != nil {
+		return nil, fmt.Errorf("inertiaframe: failed to parse props: %w", err)
+	}
+
+	var options ResponseOptions
+
+	if len(opts) > 0 {
+		for _, opt := range opts {
+			opt(&options)
+		}
+	}
+
+	options.defaults()
+
+	return &resp{proper, component, options}, nil
+}
+
+// NewProperResponse creates a new response from an inertia.NewProperResponse.
+//
+// Optional opts can be provided to customize the response.
+func NewProperResponse(component string, proper inertia.Proper, opts ...ResponseOption) Response {
+	var options ResponseOptions
+
+	if len(opts) > 0 {
+		for _, opt := range opts {
+			opt(&options)
+		}
+	}
+
+	options.defaults()
+
+	return &resp{proper, component, options}
+}
+
+// resp represents a response to an Inertia request.
+//
+// It is a helper that implements the Response interface and is used
+// to create a response from a struct or an inertia.Proper.
+type resp struct {
+	proper    inertia.Proper
+	component string
+	opts      ResponseOptions
+}
+
+func (r *resp) Component() string        { return r.component }
+func (r *resp) Proper() inertia.Proper   { return r.proper }
+func (r *resp) Options() ResponseOptions { return r.opts }
+
+type externalRedirectMessage struct{ url string }
+
+// NewExternalRedirectResponse creates a new response that redirects the client to an
+// external URL.
+//
+// External URL is any URL that is not powered by Inertia.js.
+func NewExternalRedirectResponse(url string) Response {
+	return &externalRedirectMessage{url: url}
+}
+
+func (m *externalRedirectMessage) Proper() inertia.Proper { return nil }
+func (m *externalRedirectMessage) Component() string      { return "" }
+
+func (m *externalRedirectMessage) Write(w http.ResponseWriter, r *http.Request) error {
+	inertia.Location(w, r, m.url)
+	return nil
+}
+
+type redirectBackMessage struct{}
+
+// NewRedirectBackResponse creates a new response that redirects the client
+// back to the previous page.
+func NewRedirectBackResponse() Response {
+	return &redirectBackMessage{}
+}
+
+func (m *redirectBackMessage) Proper() inertia.Proper { return nil }
+func (m *redirectBackMessage) Component() string      { return "" }
+
+func (m *redirectBackMessage) Write(w http.ResponseWriter, r *http.Request) error {
+	RedirectBack(w, r)
+	return nil
+}
+
+type redirectMessage struct{ url string }
+
+// NewRedirectResponse creates a new response that redirects the client to the
+// specified URL.
+func NewRedirectResponse(url string) Response {
+	return &redirectMessage{url: url}
+}
+
+func (m *redirectMessage) Proper() inertia.Proper { return nil }
+func (m *redirectMessage) Component() string      { return "" }
+
+func (m *redirectMessage) Write(w http.ResponseWriter, r *http.Request) error {
+	inertiaredirect.Redirect(w, r, m.url)
+	return nil
+}
+
 // RawRequestExtractor allows to extract data from the raw http.Request.
 // If a request message implements RawRequestExtractor, the default
 // behavior is prevented and the extractor is used instead to
@@ -292,6 +290,12 @@ type RawResponseWriter interface {
 	Write(http.ResponseWriter, *http.Request) error
 }
 
+// ResponseOptioner is an additional interface to Response that if implemented
+// will be used to configure the response.
+type ResponseOptioner interface {
+	Options() ResponseOptions
+}
+
 // Meta is the metadata of an endpoint.
 type Meta struct {
 	// HTTP method of the endpoint.
@@ -302,8 +306,13 @@ type Meta struct {
 	Path string
 }
 
-// Validate validates the given data using the.
+// Validator validates incoming inertia request.
 type Validator interface {
+	// Validate validates the incoming inertia request body.
+	// If the validation fails, an error is returned.
+	//
+	// If the error is not nil, a normal behaviour is prevented
+	// and the error is returned to client.
 	Validate(any) error
 }
 

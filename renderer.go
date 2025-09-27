@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"github.com/go-json-experiment/json"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -18,16 +17,13 @@ import (
 	"strings"
 
 	"github.com/alitto/pond/v2"
+	"github.com/go-json-experiment/json"
 	"go.inout.gg/foundations/debug"
 	"go.inout.gg/foundations/must"
 
+	"go.inout.gg/inertia/internal/inertiabase"
 	"go.inout.gg/inertia/internal/inertiaheader"
 	"go.inout.gg/inertia/internal/inertiaredirect"
-)
-
-const (
-	contentTypeHTML = "text/html"
-	contentTypeJSON = "application/json"
 )
 
 const (
@@ -41,38 +37,16 @@ const (
 var DefaultConcurrency = runtime.GOMAXPROCS(0) //nolint:gochecknoglobals
 
 // Page represents an Inertia.js page that is sent to the client.
-type Page struct {
-	Props          map[string]any      `json:"props"`
-	DeferredProps  map[string][]string `json:"deferredProps,omitempty"`
-	Component      string              `json:"component"`
-	URL            string              `json:"url"`
-	Version        string              `json:"version"`
-	MergeProps     []string            `json:"mergeProps,omitempty"`
-	EncryptHistory bool                `json:"encryptHistory"`
-	ClearHistory   bool                `json:"clearHistory"`
-}
+type Page = inertiabase.Page
 
 // Config represents the configuration for the Renderer.
 type Config struct {
-	SsrClient     SsrClient
-	RootViewAttrs map[string]string
-	Version       string
-
-	// RootViewID is the ID of the root HTML element to which
-	// the Inertia.js app will be mounted.
-	//
-	// It defaults to "app".
-	RootViewID string
-
-	// Concurrency controls the number of concurrent props resolution.
-	//
-	// Only those props marked as concurrent are resolved concurrently.
-	//
-	// It defaults to the number of CPUs available.
-	Concurrency int
-
-	// JSONMarshalOptions is a list of options to be used when marshaling JSON.
+	SsrClient          SsrClient
+	RootViewAttrs      map[string]string
+	Version            string
+	RootViewID         string
 	JSONMarshalOptions []json.Options
+	Concurrency        int
 }
 
 // defaults sets the default values for the configuration.
@@ -156,10 +130,7 @@ func (r *Renderer) Version() string { return r.version }
 // If the request is an Inertia.js request, the response will be JSON,
 // otherwise, it will be an HTML response.
 func (r *Renderer) Render(w http.ResponseWriter, req *http.Request, name string, renderCtx RenderContext) error {
-	renderCtx.Concurrency = cmp.Or(renderCtx.Concurrency, r.concurrency)
-	if renderCtx.Concurrency < 0 {
-		renderCtx.Concurrency = 0
-	}
+	renderCtx.Concurrency = max(cmp.Or(renderCtx.Concurrency, r.concurrency), 0)
 
 	page, err := r.newPage(req, name, renderCtx)
 	if err != nil {
@@ -171,7 +142,7 @@ func (r *Renderer) Render(w http.ResponseWriter, req *http.Request, name string,
 			req.Header.Get(inertiaheader.HeaderReferer))
 
 		w.Header().Set(inertiaheader.HeaderXInertia, "true")
-		w.Header().Set(inertiaheader.HeaderContentType, contentTypeJSON)
+		w.Header().Set(inertiaheader.HeaderContentType, inertiaheader.ContentTypeJSON)
 		w.WriteHeader(http.StatusOK)
 
 		if err := json.MarshalWrite(w, page, r.jsonMarshalOptions...); err != nil {
@@ -181,7 +152,7 @@ func (r *Renderer) Render(w http.ResponseWriter, req *http.Request, name string,
 		return nil
 	}
 
-	w.Header().Set(inertiaheader.HeaderContentType, contentTypeHTML)
+	w.Header().Set(inertiaheader.HeaderContentType, inertiaheader.ContentTypeHTML)
 	w.WriteHeader(http.StatusOK)
 
 	data := TemplateData{T: renderCtx.T, InertiaHead: "", InertiaBody: ""}

@@ -9,5 +9,6 @@ pre-commit:
               jobs:
                   - glob: "*.go"
                     run: just lint-fix
+                    stage_fixed: true
                   - glob: "*.go"
                     run: just test-all

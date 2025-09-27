@@ -14,3 +14,8 @@ const (
 	HeaderContentType = "Content-Type"
 	HeaderReferer     = "Referer"
 )
+
+const (
+	ContentTypeHTML = "text/html"
+	ContentTypeJSON = "application/json"
+)

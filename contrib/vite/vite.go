@@ -1,4 +1,4 @@
-// Package inertiavite provides a minimal integration for Vite.
+// Package vite provides a minimal integration for Vite.
 // It adds support for Vite Client and Vite React Refresh in development mode.
 // It also provides a support for bundling Vite resources declared
 // in the Vite manifest file.

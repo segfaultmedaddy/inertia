@@ -1,4 +1,4 @@
-package inertia
+package inertiassr
 
 import (
 	"encoding/json"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.inout.gg/inertia/internal/inertiabase"
 )
 
 func TestNewHTTPSsrClient(t *testing.T) {
@@ -33,7 +35,7 @@ func TestNewHTTPSsrClient(t *testing.T) {
 func TestSsrRender(t *testing.T) {
 	t.Parallel()
 
-	page := &Page{
+	page := &inertiabase.Page{
 		Component: "Test",
 		Props:     map[string]any{"foo": "bar"},
 	}
