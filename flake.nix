@@ -74,10 +74,6 @@
                 name = "GOFUMPT_SPLIT_LONG_LINES";
                 value = "on";
               }
-              {
-                name = "GOEXPERIMENT";
-                value = "jsonv2";
-              }
             ];
           };
         };

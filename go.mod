@@ -1,9 +1,10 @@
 module go.inout.gg/inertia
 
-go 1.24.0
+go 1.25
 
 require (
 	github.com/alitto/pond/v2 v2.5.0
+	github.com/go-json-experiment/json v0.0.0-20250910080747-cc2cfa0554c3
 	github.com/go-playground/form/v4 v4.2.1
 	github.com/stretchr/testify v1.11.1
 	go.inout.gg/foundations v0.0.0-20250914201037-56ca2698a3c8

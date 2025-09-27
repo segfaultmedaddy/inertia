@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json/v2"
+	"github.com/go-json-experiment/json"
 	"fmt"
 	"html/template"
 	"io/fs"

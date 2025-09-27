@@ -6,7 +6,7 @@ package inertiaframe
 import (
 	"cmp"
 	"context"
-	"encoding/json/v2"
+	"github.com/go-json-experiment/json"
 	"errors"
 	"fmt"
 	"mime"
