@@ -58,6 +58,8 @@
               typos
 
               go_1_25
+              gotools
+              gcc
               golangci-lint
 
               nodejs

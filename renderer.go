@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -70,6 +70,9 @@ type Config struct {
 	//
 	// It defaults to the number of CPUs available.
 	Concurrency int
+
+	// JSONMarshalOptions is a list of options to be used when marshaling JSON.
+	JSONMarshalOptions []json.Options
 }
 
 // defaults sets the default values for the configuration.
@@ -84,12 +87,13 @@ func (c *Config) defaults() {
 //
 // To create a new Renderer, use the New or FromFS functions.
 type Renderer struct {
-	ssrClient     SsrClient
-	t             *template.Template
-	rootViewID    string
-	version       string
-	rootViewAttrs []pair[[]byte, []byte]
-	concurrency   int
+	ssrClient          SsrClient
+	jsonMarshalOptions []json.Options
+	t                  *template.Template
+	rootViewID         string
+	version            string
+	rootViewAttrs      []pair[[]byte, []byte]
+	concurrency        int
 }
 
 // New creates a new Renderer instance.
@@ -109,12 +113,13 @@ func New(t *template.Template, config *Config) *Renderer {
 	}
 
 	r := &Renderer{
-		t:             t,
-		ssrClient:     config.SsrClient,
-		version:       config.Version,
-		rootViewID:    config.RootViewID,
-		rootViewAttrs: attrs,
-		concurrency:   config.Concurrency,
+		t:                  t,
+		ssrClient:          config.SsrClient,
+		jsonMarshalOptions: config.JSONMarshalOptions,
+		version:            config.Version,
+		rootViewID:         config.RootViewID,
+		rootViewAttrs:      attrs,
+		concurrency:        config.Concurrency,
 	}
 
 	debug.Assert(r.t != nil, "expected t to be defined")
@@ -169,8 +174,7 @@ func (r *Renderer) Render(w http.ResponseWriter, req *http.Request, name string,
 		w.Header().Set(inertiaheader.HeaderContentType, contentTypeJSON)
 		w.WriteHeader(http.StatusOK)
 
-		err := json.NewEncoder(w).Encode(page)
-		if err != nil {
+		if err := json.MarshalWrite(w, page, r.jsonMarshalOptions...); err != nil {
 			return fmt.Errorf("inertia: failed to encode JSON response: %w", err)
 		}
 

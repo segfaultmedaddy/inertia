@@ -6,8 +6,7 @@ package inertiaframe
 import (
 	"cmp"
 	"context"
-	"encoding/json"
-	jsonv2 "encoding/json/v2"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"mime"
@@ -124,6 +123,55 @@ func newRequest[M any](m M) *Request[M] {
 	return &Request[M]{Message: &m}
 }
 
+// NewStructResponse creates a new response from a struct annotated with inertia tags.
+//
+// The struct must implement the Message interface.
+func NewStructResponse(m any, component string, opts ...ResponseOption) (Response, error) {
+	proper, err := inertia.ParseStruct(m)
+	if err != nil {
+		return nil, fmt.Errorf("inertiaframe: failed to parse props: %w", err)
+	}
+
+	var options ResponseOptions
+	if len(opts) > 0 {
+		for _, opt := range opts {
+			opt(&options)
+		}
+	}
+
+	return &resp{proper, component, options}, nil
+}
+
+// NewProperResponse creates a new response from an inertia.NewProperResponse.
+//
+// Optional opts can be provided to customize the response.
+func NewProperResponse(proper inertia.Proper, component string, opts ...ResponseOption) (Response, error) {
+	var options ResponseOptions
+	if len(opts) > 0 {
+		for _, opt := range opts {
+			opt(&options)
+		}
+	}
+
+	options.defaults()
+
+	return &resp{proper, component, options}, nil
+}
+
+// resp represents a response to an Inertia request.
+//
+// It is a helper that implements the Response interface and is used
+// to create a response from a struct or an inertia.Proper.
+type resp struct {
+	proper    inertia.Proper
+	component string
+	opts      ResponseOptions
+}
+
+func (r *resp) Component() string        { return r.component }
+func (r *resp) Proper() inertia.Proper   { return r.proper }
+func (r *resp) Options() ResponseOptions { return r.opts }
+
 // ResponseOptions is a configuration for inertia response.
 type ResponseOptions struct {
 	// ClearHistory determines whether the history should be cleared by
@@ -139,9 +187,15 @@ type ResponseOptions struct {
 	Concurrency int
 }
 
+func (opt *ResponseOptions) defaults() {
+	opt.Concurrency = cmp.Or(opt.Concurrency, inertia.DefaultConcurrency)
+}
+
+// ResponseOption is used to configure inertia response.
 type ResponseOption func(*ResponseOptions)
 
-// ResponseOptioner is an interface that
+// ResponseOptioner is an additional interface to Response that if implemented
+// will be used to configure the response.
 type ResponseOptioner interface {
 	Options() ResponseOptions
 }
@@ -186,7 +240,7 @@ func (m *redirectMessage) Proper() inertia.Proper { return nil }
 func (m *redirectMessage) Component() string      { return "" }
 
 func (m *redirectMessage) Write(w http.ResponseWriter, r *http.Request) error {
-	RedirectBack(w, r)
+	inertiaredirect.Redirect(w, r, m.url)
 	return nil
 }
 
@@ -196,16 +250,14 @@ func NewRedirectResponse(url string) Response {
 	return &redirectMessage{url: url}
 }
 
-// Message is used to send a message to the client. It can be
-// used to guide the client to render a component or redirect to a
+// Response is an interface that represents a response message.
+// It guides the client to render a component or redirect to a
 // specific URL.
 //
-// If the Message implements a RawResponseWriter, the default
+// If the response implements RawResponseWriter the default
 // behavior is prevented and the writer is used instead to
 // write the response data.
-//
-// The Component() method must return a non-empty string.
-type Message interface {
+type Response interface {
 	// Component returns the component name to be rendered.
 	//
 	// Executor panics if Component returns an empty string,
@@ -215,15 +267,11 @@ type Message interface {
 	// behavior is prevented and the writer is used instead to
 	// write the response data.
 	Component() string
-}
 
-// Response is an interface that represents a response message.
-//
-// If the response implements RawResponseWriter the default
-// behavior is prevented and the writer is used instead to
-// write the response data.
-type Response interface {
-	Message
+	// Proper returns a Proper message to be rendered.
+	//
+	// It can return nil if no props needs to be rendered such as
+	// when it is a redirect response.
 	Proper() inertia.Proper
 }
 
@@ -383,7 +431,7 @@ func newHandler[M any](
 				{
 					d("received JSON request")
 
-					if err := jsonv2.UnmarshalRead(r.Body, &msg, jsonUnmarshalOptions...); err != nil {
+					if err := json.UnmarshalRead(r.Body, &msg, jsonUnmarshalOptions...); err != nil {
 						return fmt.Errorf("inertiaframe: failed to decode request: %w", err)
 					}
 				}
@@ -465,58 +513,13 @@ func newHandler[M any](
 			renderCtx.AddValidationErrorer(inertia.ValidationErrors(errors))
 		}
 
-		componentName := resp.Component()
-		debug.Assert(componentName != "", "component must not be empty, when using non RawResponseWriter")
+		component := resp.Component()
+		debug.Assert(component != "", "component must not be empty, when using non RawResponseWriter")
 
-		if err := inertia.Render(w, r, componentName, renderCtx); err != nil {
+		if err := inertia.Render(w, r, component, renderCtx); err != nil {
 			return fmt.Errorf("inertiaframe: failed to render: %w", err)
 		}
 
 		return nil
 	}))
 }
-
-// Struct creates a new response from a struct annotated with inertia tags.
-//
-// The struct must implement the Message interface.
-func Struct(m Message, opts ...ResponseOption) (Response, error) {
-	proper, err := inertia.ParseStruct(m)
-	if err != nil {
-		return nil, fmt.Errorf("inertiaframe: failed to parse props: %w", err)
-	}
-
-	var options ResponseOptions
-	if len(opts) > 0 {
-		for _, opt := range opts {
-			opt(&options)
-		}
-	}
-
-	return &resp{proper, m.Component(), options}, nil
-}
-
-// Proper creates a new response from an inertia.Proper.
-func Proper(proper inertia.Proper, component string, opts ...ResponseOption) (Response, error) {
-	var options ResponseOptions
-	if len(opts) > 0 {
-		for _, opt := range opts {
-			opt(&options)
-		}
-	}
-
-	return &resp{proper, component, options}, nil
-}
-
-// resp represents a response to an Inertia request.
-//
-// It is a helper that implements the Response interface and is used
-// to create a response from a struct or a inertia.Proper.
-type resp struct {
-	proper    inertia.Proper
-	component string
-	options   ResponseOptions
-}
-
-func (r *resp) Component() string        { return r.component }
-func (r *resp) Proper() inertia.Proper   { return r.proper }
-func (r *resp) Options() ResponseOptions { return r.options }
