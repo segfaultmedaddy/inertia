@@ -41,12 +41,31 @@ type Page = inertiabase.Page
 
 // Config represents the configuration for the Renderer.
 type Config struct {
-	SsrClient          SsrClient
-	RootViewAttrs      map[string]string
-	Version            string
-	RootViewID         string
+	// SsrClient is the client used for server-side rendering.
+	//
+	// It is optional and can be nil.
+	SsrClient SsrClient
+
+	// RootViewAttrs are the attributes to be applied to the root HTML element.
+	//
+	// It is optional and can be nil.
+	RootViewAttrs map[string]string
+
+	// Version is the version of the Inertia.js app.
+	//
+	// If a client version is not matching the server version, the
+	Version string
+
+	// RootViewID is the root HTML element ID to which
+	// the Inertia.js app is mounted.
+	RootViewID string
+
+	// JSONMarshalOptions is the JSON marshal options for the props.
 	JSONMarshalOptions []json.Options
-	Concurrency        int
+
+	// Concurrency is the concurrency level for props resolution
+	// marked as concurrently resolvable.
+	Concurrency int
 }
 
 // defaults sets the default values for the configuration.
@@ -220,7 +239,7 @@ func (r *Renderer) makeRootView(page *Page) (template.HTML, error) {
 
 	_ = must.Must(w.WriteString(`data-page="`))
 
-	pageBytes, err := json.Marshal(page)
+	pageBytes, err := json.Marshal(page, r.jsonMarshalOptions...)
 	if err != nil {
 		return "", fmt.Errorf("inertia: an error occurred while rendering page: %w", err)
 	}

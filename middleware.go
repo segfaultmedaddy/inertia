@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"slices"
 
-	"go.inout.gg/foundations/http/httpmiddleware"
 	"go.inout.gg/foundations/must"
 
 	"go.inout.gg/inertia/internal/inertiaheader"
@@ -44,8 +43,8 @@ func (m *MiddlewareConfig) defaults() {
 	}
 }
 
-// Middleware provides the HTTP handling layer for Inertia.js server-side integration.
-func Middleware(renderer *Renderer, opts ...func(*MiddlewareConfig)) httpmiddleware.MiddlewareFunc {
+// NewMiddleware provides the HTTP handling layer for Inertia.js server-side integration.
+func NewMiddleware(renderer *Renderer, opts ...func(*MiddlewareConfig)) func(http.Handler) http.Handler {
 	//nolint:exhaustruct
 	config := MiddlewareConfig{}
 	for _, opt := range opts {

@@ -14,7 +14,7 @@ import (
 	"github.com/go-json-experiment/json"
 	"github.com/go-playground/form/v4"
 	"go.inout.gg/foundations/debug"
-	"go.inout.gg/foundations/http/httperror"
+	"go.inout.gg/foundations/http/httphandler"
 	"go.inout.gg/foundations/http/httpmiddleware"
 	"go.inout.gg/foundations/must"
 
@@ -28,6 +28,13 @@ var d = debug.Debuglog("inertiaframe") //nolint:gochecknoglobals
 var DefaultFormDecoder = form.NewDecoder() //nolint:gochecknoglobals
 
 var ErrEmptyResponse = errors.New("inertiaframe: empty response")
+
+type (
+	Middleware     = httpmiddleware.Middleware
+	MiddlewareFunc = httpmiddleware.MiddlewareFunc
+	Handler        = httphandler.Handler
+	HandlerFunc    = httphandler.HandlerFunc
+)
 
 var (
 	_ RawResponseWriter = (*redirectMessage)(nil)
@@ -92,7 +99,7 @@ func DefaultValidationErrorHandler(w http.ResponseWriter, r *http.Request, error
 }
 
 //nolint:gochecknoglobals
-var DefaultErrorHandler httperror.ErrorHandler = httperror.ErrorHandlerFunc(
+var DefaultErrorHandler httphandler.ErrorHandler = httphandler.ErrorHandlerFunc(
 	func(w http.ResponseWriter, r *http.Request, err error) {
 		var errorer inertia.ValidationErrorer
 		if errors.As(err, &errorer) {
@@ -100,7 +107,7 @@ var DefaultErrorHandler httperror.ErrorHandler = httperror.ErrorHandlerFunc(
 			return
 		}
 
-		httperror.DefaultErrorHandler(w, r, err)
+		httphandler.DefaultErrorHandler(w, r, err)
 	},
 )
 
@@ -115,12 +122,12 @@ type Request[M any] struct {
 	// Message is a decoded message sent by a client.
 	//
 	// Message can implement RawRequestExtractor to intercept request data extraction.
-	Message *M
+	Message M
 }
 
 // newRequest creates a new request.
 func newRequest[M any](m M) *Request[M] {
-	return &Request[M]{Message: &m}
+	return &Request[M]{Message: m}
 }
 
 // ResponseOptions is a configuration for inertia response.
@@ -192,10 +199,10 @@ func NewStructResponse(component string, m any, opts ...ResponseOption) (Respons
 	return &resp{proper, component, options}, nil
 }
 
-// NewProperResponse creates a new response from an inertia.NewProperResponse.
+// NewResponse creates a new response from an inertia.Proper.
 //
 // Optional opts can be provided to customize the response.
-func NewProperResponse(component string, proper inertia.Proper, opts ...ResponseOption) Response {
+func NewResponse(component string, proper inertia.Proper, opts ...ResponseOption) Response {
 	var options ResponseOptions
 
 	if len(opts) > 0 {
@@ -222,6 +229,33 @@ type resp struct {
 func (r *resp) Component() string        { return r.component }
 func (r *resp) Proper() inertia.Proper   { return r.proper }
 func (r *resp) Options() ResponseOptions { return r.opts }
+
+type rawResp struct{ h Handler }
+
+// NewRawResponse creates a new response with control handed over to the
+// handler.
+//
+// The handler receives raw http.ResponseWriter and *http.Request and
+// is responsible for writing the response.
+//
+// Raw response might be useful when full control over the response is needed,
+// such as when implementing authentication, etc.
+func NewRawResponse(h Handler) Response {
+	return &rawResp{h}
+}
+
+func (*rawResp) Component() string      { return "" }
+func (*rawResp) Proper() inertia.Proper { return nil }
+
+func (*rawResp) Options() ResponseOptions {
+	//nolint:exhaustruct
+	return ResponseOptions{}
+}
+
+func (rr *rawResp) Write(w http.ResponseWriter, r *http.Request) error {
+	//nolint:wrapcheck
+	return rr.h.ServeHTTP(w, r)
+}
 
 type externalRedirectMessage struct{ url string }
 
@@ -307,25 +341,30 @@ type Meta struct {
 }
 
 // Validator validates incoming inertia request.
-type Validator interface {
+type Validator[M any] interface {
 	// Validate validates the incoming inertia request body.
 	// If the validation fails, an error is returned.
 	//
 	// If the error is not nil, a normal behaviour is prevented
 	// and the error is returned to client.
-	Validate(any) error
+	Validate(M) error
 }
 
-type Endpoint[R any] interface {
+// ValidatorFunc is a function that implements the Validator interface.
+type ValidatorFunc[M any] func(M) error
+
+func (f ValidatorFunc[M]) Validate(v M) error { return f(v) }
+
+type Endpoint[M any] interface {
 	// Execute executes the endpoint for the given request.
 	//
 	// If the returned error can automatically be converted to an Inertia
 	// error, it will be converted and passed down to the client.
-	Execute(context.Context, *Request[R]) (Response, error)
+	Execute(context.Context, *Request[M]) (Response, error)
 
 	// Meta returns the metadata of the endpoint. It is used to configure
 	// the endpoint's behavior when mounted on a given http.ServeMux.
-	Meta() *Meta
+	Meta() Meta
 }
 
 // Mux is a universal interface for routing HTTP requests.
@@ -337,15 +376,15 @@ type Mux interface {
 	Handle(pattern string, h http.Handler)
 }
 
-type MountOpts struct {
+type MountOpts[M any] struct {
 	// Middleware is the middleware used to handle requests.
 	// If Middleware is nil, no middleware will be used.
-	Middleware httpmiddleware.Middleware
+	Middleware Middleware
 
 	// Validator is the validator used to validate the request data.
 	//
 	// If no validator is specified requests won't be validated.
-	Validator Validator
+	Validator Validator[M]
 
 	// FormDecoder is the decoder used to parse incoming request data
 	// when the request type is application/x-www-form-urlencoded or
@@ -357,7 +396,7 @@ type MountOpts struct {
 	// ErrorHandler is the error handler used to handle errors.
 	//
 	// If ErrorHandler is nil, the DefaultErrorHandler will be used.
-	ErrorHandler httperror.ErrorHandler
+	ErrorHandler httphandler.ErrorHandler
 
 	// JSONUnmarshalOptions is the options used to unmarshal JSON requests.
 	//
@@ -375,10 +414,10 @@ type MountOpts struct {
 // The message M is validated using the validator specified in the MountOpts.
 // Validation errors are automatically handled and passed to the client
 // according to Inertia protocol.
-func Mount[M any](mux Mux, e Endpoint[M], opts *MountOpts) {
+func Mount[M any](mux Mux, e Endpoint[M], opts *MountOpts[M]) {
 	if opts == nil {
 		//nolint:exhaustruct
-		opts = &MountOpts{}
+		opts = &MountOpts[M]{}
 	}
 
 	opts.ErrorHandler = cmp.Or(opts.ErrorHandler, DefaultErrorHandler)
@@ -386,7 +425,6 @@ func Mount[M any](mux Mux, e Endpoint[M], opts *MountOpts) {
 
 	debug.Assert(e != nil, "Executor must not be nil")
 	debug.Assert(opts.ErrorHandler != nil, "Executor must specify the error handler")
-	debug.Assert(opts.Validator != nil, "Executor must specify the validator")
 
 	m := e.Meta()
 
@@ -408,14 +446,14 @@ func Mount[M any](mux Mux, e Endpoint[M], opts *MountOpts) {
 // newHandler creates a new http.Handler for the given endpoint.
 func newHandler[M any](
 	endpoint Endpoint[M],
-	errorHandler httperror.ErrorHandler,
-	validator Validator,
+	errorHandler httphandler.ErrorHandler,
+	validator Validator[M],
 	formDecoder *form.Decoder,
 	jsonUnmarshalOptions []json.Options,
 ) http.Handler {
-	handleError := httperror.WithErrorHandler(errorHandler)
+	handleError := httphandler.WithErrorHandler(errorHandler)
 
-	return handleError(httperror.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+	return handleError(httphandler.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
 		var (
 			msg       M
 			renderCtx inertia.RenderContext
@@ -460,7 +498,7 @@ func newHandler[M any](
 		}
 
 		if validator != nil {
-			if err := validator.Validate(&msg); err != nil {
+			if err := validator.Validate(msg); err != nil {
 				d("failed to validate request")
 
 				return fmt.Errorf("inertiaframe: failed to validate request: %w", err)

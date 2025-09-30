@@ -22,7 +22,7 @@ func newMiddleware(h http.Handler, renderer *Renderer) http.Handler {
 	}
 
 	mux := http.NewServeMux()
-	middleware := Middleware(renderer)(mux)
+	middleware := NewMiddleware(renderer)(mux)
 
 	mux.HandleFunc("/inertia", h.ServeHTTP)
 

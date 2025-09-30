@@ -1,13 +1,12 @@
 package inertiassr
 
-//go:generate mockgen -destination ssr_mock.go -package inertiassr . SsrClient
-
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/go-json-experiment/json"
 
 	"go.inout.gg/inertia/internal/inertiabase"
 	"go.inout.gg/inertia/internal/inertiaheader"
@@ -20,6 +19,7 @@ type SsrTemplateData struct {
 	Body string `json:"body"`
 }
 
+//go:generate mockgen -destination ssr_mock.go -package inertiassr . SsrClient
 type SsrClient interface {
 	// Render makes a request to the server-side rendering service with the given page data.
 	Render(context.Context, *inertiabase.Page) (*SsrTemplateData, error)
@@ -63,7 +63,7 @@ func (s *ssr) Render(ctx context.Context, p *inertiabase.Page) (*SsrTemplateData
 	}
 
 	var data SsrTemplateData
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &data); err != nil {
 		return nil, fmt.Errorf("inertia: failed to decode JSON response: %w", err)
 	}
 
