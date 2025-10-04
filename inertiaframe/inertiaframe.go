@@ -1,6 +1,7 @@
-// Package inertiaframe implements an opinionated framework around Go's HTTP and Inertia
-// library, abstracting out protocol-level details and providing a simple
-// message-based API.
+// Package inertiaframe provides a high-level, message-oriented API for building Inertia.js applications.
+//
+// It abstracts Inertia.js protocol details, providing automatic request parsing, validation,
+// session management, and response handling. Build type-safe endpoints with minimal boilerplate.
 package inertiaframe
 
 import (
@@ -47,24 +48,17 @@ type kCtx struct{}
 
 var kCtxKey = kCtx{} //nolint:gochecknoglobals
 
-// WithProps sets the props on the request context and returns
-// the updated request.
+// WithProps attaches shared props to the request context for later merging with response props.
+// Useful in middleware to provide global data (e.g., auth user, flash messages) to all pages.
 //
-// WithProps can be used to gather props in multiple places, e.g., in middleware.
-//
-// Any overlapping props between the shared context and the response props
-// will be replaced with the response props.
-//
-// Prefer to use the response props directly instead of using this function,
-// and opt in only when necessary.
+// Response props take precedence over shared props when keys overlap.
+// Prefer setting props directly in responses when possible; use this for cross-cutting concerns.
 func WithProps(r *http.Request, props inertia.Proper) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), kCtxKey, props))
 }
 
-// RedirectBack redirects the user back to the previous page.
-//
-// The previous page is determined from the Referer header and
-// falls back to the session if the header is not present.
+// RedirectBack redirects to the previous page using the Referer header.
+// Falls back to the session-stored path if the header is missing, or "/" if no session.
 func RedirectBack(w http.ResponseWriter, r *http.Request) {
 	referer := r.Header.Get(inertiaheader.HeaderReferer)
 	if referer == "" {
@@ -83,9 +77,8 @@ func RedirectBack(w http.ResponseWriter, r *http.Request) {
 	inertiaredirect.Redirect(w, r, referer)
 }
 
-// DefaultValidationErrorHandler is a default error handler for validation errors.
-//
-// It saves flash messages and redirects back to the previous page.
+// DefaultValidationErrorHandler handles validation errors by storing them in the session
+// and redirecting back to the previous page where they can be displayed.
 func DefaultValidationErrorHandler(w http.ResponseWriter, r *http.Request, errorer inertia.ValidationErrorer) {
 	errorBag := inertia.ErrorBagFromRequest(r)
 	sess := must.Must(sessionFromRequest(r))
@@ -117,11 +110,10 @@ const (
 	mediaTypeMultipart = "multipart/form-data"
 )
 
-// Request is a request sent by a client.
+// Request represents a parsed and validated client request.
 type Request[M any] struct {
-	// Message is a decoded message sent by a client.
-	//
-	// Message can implement RawRequestExtractor to intercept request data extraction.
+	// Message is the decoded request payload (from JSON or form data).
+	// If M implements RawRequestExtractor, custom extraction logic is used.
 	Message M
 }
 
@@ -130,18 +122,15 @@ func newRequest[M any](m M) *Request[M] {
 	return &Request[M]{Message: m}
 }
 
-// ResponseOptions is a configuration for inertia response.
+// ResponseOptions configures Inertia response behavior for a specific page.
 type ResponseOptions struct {
-	// ClearHistory determines whether the history should be cleared by
-	// the client.
+	// ClearHistory instructs the client to clear its history stack.
 	ClearHistory bool
 
-	// EncryptHistory determines whether the history should be encrypted by
-	// the client.
+	// EncryptHistory instructs the client to encrypt the history state.
 	EncryptHistory bool
 
-	// Concurrency determines the maximum number of concurrent resolutions of lazy
-	// props that can be made during response resolution.
+	// Concurrency sets the maximum concurrent lazy prop resolutions for this response.
 	Concurrency int
 }
 
@@ -152,34 +141,23 @@ func (opt *ResponseOptions) defaults() {
 // ResponseOption is used to configure inertia response.
 type ResponseOption func(*ResponseOptions)
 
-// Response is an interface that represents a response message.
-// It guides the client to render a component or redirect to a
-// specific URL.
+// Response represents an endpoint's response, instructing the client to render a component or redirect.
 //
-// If the response implements RawResponseWriter the default
-// behavior is prevented and the writer is used instead to
-// write the response data.
+// If a Response implements RawResponseWriter, it bypasses normal Inertia rendering
+// and writes directly to http.ResponseWriter (useful for downloads, APIs, etc.).
 type Response interface {
-	// Component returns the component name to be rendered.
-	//
-	// Executor panics if Component returns an empty string,
-	// unless the message implements RawResponseWriter.
-	//
-	// If the message is implementing RawResponseWriter, the default
-	// behavior is prevented and the writer is used instead to
-	// write the response data.
+	// Component returns the frontend component name to render.
+	// Must be non-empty unless the response implements RawResponseWriter.
 	Component() string
 
-	// Proper returns a Proper message to be rendered.
-	//
-	// It can return nil if no props needs to be rendered such as
-	// when it is a redirect response.
+	// Proper returns the props to send to the component.
+	// Can be nil for redirect responses or when no props are needed.
 	Proper() inertia.Proper
 }
 
-// NewStructResponse creates a new response from a struct annotated with inertia tags.
-//
-// The struct must implement the Message interface.
+// NewStructResponse creates a Response by parsing inertia struct tags on m.
+// See inertia.ParseStruct for tag documentation.
+// Returns an error if the struct tags are invalid.
 func NewStructResponse(component string, m any, opts ...ResponseOption) (Response, error) {
 	proper, err := inertia.ParseStruct(m)
 	if err != nil {
@@ -199,9 +177,8 @@ func NewStructResponse(component string, m any, opts ...ResponseOption) (Respons
 	return &resp{proper, component, options}, nil
 }
 
-// NewResponse creates a new response from an inertia.Proper.
-//
-// Optional opts can be provided to customize the response.
+// NewResponse creates a Response with the specified component and props.
+// Optional ResponseOption functions can customize history and concurrency behavior.
 func NewResponse(component string, proper inertia.Proper, opts ...ResponseOption) Response {
 	var options ResponseOptions
 
@@ -232,14 +209,9 @@ func (r *resp) Options() ResponseOptions { return r.opts }
 
 type rawResp struct{ h Handler }
 
-// NewRawResponse creates a new response with control handed over to the
-// handler.
-//
-// The handler receives raw http.ResponseWriter and *http.Request and
-// is responsible for writing the response.
-//
-// Raw response might be useful when full control over the response is needed,
-// such as when implementing authentication, etc.
+// NewRawResponse creates a Response that bypasses Inertia rendering.
+// The provided handler has full control over the HTTP response.
+// Useful for file downloads, API endpoints, or custom authentication flows.
 func NewRawResponse(h Handler) Response {
 	return &rawResp{h}
 }
@@ -259,10 +231,8 @@ func (rr *rawResp) Write(w http.ResponseWriter, r *http.Request) error {
 
 type externalRedirectMessage struct{ url string }
 
-// NewExternalRedirectResponse creates a new response that redirects the client to an
-// external URL.
-//
-// External URL is any URL that is not powered by Inertia.js.
+// NewExternalRedirectResponse creates a Response that redirects to an external URL
+// (outside the Inertia app). Uses the Location protocol for proper client handling.
 func NewExternalRedirectResponse(url string) Response {
 	return &externalRedirectMessage{url: url}
 }
@@ -277,8 +247,8 @@ func (m *externalRedirectMessage) Write(w http.ResponseWriter, r *http.Request) 
 
 type redirectBackMessage struct{}
 
-// NewRedirectBackResponse creates a new response that redirects the client
-// back to the previous page.
+// NewRedirectBackResponse creates a Response that redirects to the previous page.
+// Uses the Referer header or session-stored path.
 func NewRedirectBackResponse() Response {
 	return &redirectBackMessage{}
 }
@@ -293,8 +263,7 @@ func (m *redirectBackMessage) Write(w http.ResponseWriter, r *http.Request) erro
 
 type redirectMessage struct{ url string }
 
-// NewRedirectResponse creates a new response that redirects the client to the
-// specified URL.
+// NewRedirectResponse creates a Response that redirects to the specified URL within the Inertia app.
 func NewRedirectResponse(url string) Response {
 	return &redirectMessage{url: url}
 }
@@ -307,46 +276,41 @@ func (m *redirectMessage) Write(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// RawRequestExtractor allows to extract data from the raw http.Request.
-// If a request message implements RawRequestExtractor, the default
-// behavior is prevented and the extractor is used instead to
-// extract the request data.
+// RawRequestExtractor allows custom request parsing logic.
+// When a request message implements this interface, it bypasses the default
+// JSON/form decoder and calls Extract instead.
 type RawRequestExtractor interface {
-	// Extract extracts data from the raw http.Request.
+	// Extract parses and populates fields from the raw HTTP request.
 	Extract(*http.Request) error
 }
 
-// RawResponseWriter allows to write data to the http.ResponseWriter.
-// If a response message implements RawResponseWriter, the default
-// behavior is prevented and the writer is used instead to
-// write the response data.
+// RawResponseWriter allows custom response writing logic.
+// When a Response implements this interface, it bypasses normal Inertia rendering
+// and calls Write directly. Useful for non-Inertia responses (downloads, APIs, etc.).
 type RawResponseWriter interface {
 	Write(http.ResponseWriter, *http.Request) error
 }
 
-// ResponseOptioner is an additional interface to Response that if implemented
-// will be used to configure the response.
+// ResponseOptioner is an optional interface for Responses that need custom options
+// (history management, concurrency). If implemented, Options() is called to configure the response.
 type ResponseOptioner interface {
 	Options() ResponseOptions
 }
 
-// Meta is the metadata of an endpoint.
+// Meta contains endpoint routing metadata used during mounting.
 type Meta struct {
-	// HTTP method of the endpoint.
+	// Method is the HTTP method (GET, POST, PUT, DELETE, etc.).
 	Method string
 
-	// HTTP path of the endpoint. It supports the same path pattern as
-	// the http.ServeMux.
+	// Path is the URL pattern, following http.ServeMux syntax (e.g., "/users/{id}").
 	Path string
 }
 
-// Validator validates incoming inertia request.
+// Validator validates parsed request messages before execution.
 type Validator[M any] interface {
-	// Validate validates the incoming inertia request body.
-	// If the validation fails, an error is returned.
-	//
-	// If the error is not nil, a normal behaviour is prevented
-	// and the error is returned to client.
+	// Validate checks the request message for errors.
+	// If validation fails, return a ValidationErrorer to send errors to the client,
+	// or any other error to trigger error handling.
 	Validate(M) error
 }
 
@@ -355,65 +319,45 @@ type ValidatorFunc[M any] func(M) error
 
 func (f ValidatorFunc[M]) Validate(v M) error { return f(v) }
 
+// Endpoint represents a type-safe, message-oriented HTTP handler.
 type Endpoint[M any] interface {
-	// Execute executes the endpoint for the given request.
-	//
-	// If the returned error can automatically be converted to an Inertia
-	// error, it will be converted and passed down to the client.
+	// Execute processes the validated request and returns a Response.
+	// Errors are automatically handled based on type (e.g., ValidationErrorer).
 	Execute(context.Context, *Request[M]) (Response, error)
 
-	// Meta returns the metadata of the endpoint. It is used to configure
-	// the endpoint's behavior when mounted on a given http.ServeMux.
+	// Meta returns routing metadata (HTTP method and path pattern).
 	Meta() Meta
 }
 
-// Mux is a universal interface for routing HTTP requests.
+// Mux represents an HTTP router compatible with http.ServeMux.
 type Mux interface {
-	// Handle handles the given HTTP request at the specified path.
-	//
-	// The pattern is a string following the http.ServeMux format:
-	// "<http-method> <path>".
+	// Handle registers a handler for a pattern (e.g., "POST /users/{id}").
 	Handle(pattern string, h http.Handler)
 }
 
+// MountOpts configures endpoint mounting behavior.
 type MountOpts[M any] struct {
-	// Middleware is the middleware used to handle requests.
-	// If Middleware is nil, no middleware will be used.
-	Middleware Middleware
-
-	// Validator is the validator used to validate the request data.
-	//
-	// If no validator is specified requests won't be validated.
+	// Validator validates requests before execution. If nil, no validation is performed.
 	Validator Validator[M]
 
-	// FormDecoder is the decoder used to parse incoming request data
-	// when the request type is application/x-www-form-urlencoded or
-	// multipart/form-data.
-	//
-	// If FormDecoder is nil, the DefaultFormDecoder will be used.
+	// FormDecoder parses form-urlencoded and multipart requests.
+	// Defaults to DefaultFormDecoder if nil.
 	FormDecoder *form.Decoder
 
-	// ErrorHandler is the error handler used to handle errors.
-	//
-	// If ErrorHandler is nil, the DefaultErrorHandler will be used.
+	// ErrorHandler handles execution errors. Defaults to DefaultErrorHandler if nil.
 	ErrorHandler httphandler.ErrorHandler
 
-	// JSONUnmarshalOptions is the options used to unmarshal JSON requests.
-	//
-	// It can be used to customize the JSON decoding behavior, such as
-	// allowing to parse protobuf message with protojson.
+	// JSONUnmarshalOptions customizes JSON parsing (e.g., for protobuf).
 	JSONUnmarshalOptions []json.Options
 }
 
-// Mount mounts the executor on the given mux.
+// Mount registers an Endpoint on a Mux, creating an HTTP handler that:
+//   - Automatically parses JSON and form data into the message type M
+//   - Validates requests using the configured Validator
+//   - Handles validation errors per Inertia protocol (flash and redirect)
+//   - Executes the endpoint and renders the Response
 //
-// Endpoint must specify the HTTP method and path via Endpoint.Meta().
-// The mounted endpoint automatically handles requests with JSON and form
-// data.
-//
-// The message M is validated using the validator specified in the MountOpts.
-// Validation errors are automatically handled and passed to the client
-// according to Inertia protocol.
+// The endpoint's Meta() defines the HTTP method and path pattern.
 func Mount[M any](mux Mux, e Endpoint[M], opts *MountOpts[M]) {
 	if opts == nil {
 		//nolint:exhaustruct
@@ -435,12 +379,7 @@ func Mount[M any](mux Mux, e Endpoint[M], opts *MountOpts[M]) {
 
 	d("Mounting executor on pattern: %s", pattern)
 
-	h := newHandler(e, opts.ErrorHandler, opts.Validator, opts.FormDecoder, opts.JSONUnmarshalOptions)
-	if opts.Middleware != nil {
-		h = opts.Middleware.Middleware(h)
-	}
-
-	mux.Handle(pattern, h)
+	mux.Handle(pattern, newHandler(e, opts.ErrorHandler, opts.Validator, opts.FormDecoder, opts.JSONUnmarshalOptions))
 }
 
 // newHandler creates a new http.Handler for the given endpoint.

@@ -16,8 +16,9 @@ func init() {
 	gob.Register(&MapError{})
 }
 
-// MapError is a map of key-value pairs that can be used as validation errors.
-// Key is the field name and value is the error message.
+// MapError is a convenient map-based ValidationErrorer implementation.
+// Keys are field names and values are error messages.
+// Useful for quickly creating validation errors without defining custom types.
 type MapError map[string]string
 
 func (m MapError) ValidationErrors() []inertia.ValidationError {

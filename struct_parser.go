@@ -28,36 +28,44 @@ var (
 
 var lazyType = reflect.TypeOf((*Lazy)(nil)).Elem() //nolint:gochecknoglobals
 
-// ParseStruct returns a Props set parsed from v.
+// ParseStruct converts a struct into a Props collection using struct tags.
+// It expects a struct pointer with JSON-encodable fields.
 //
-// ParseStruct expects a struct pointer as input with JSON encodable fields.
-// By default, all fields are ignored unless they are tagged with the "inertia" tag.
+// Only fields tagged with "inertia" are included; untagged fields are ignored.
 //
-// The inertia tag follows the format "field_name,optional|deferred|always|<empty>,mergeable|<empty>,omitempty|<empty>"
-// The tag can be used to control how the field is handled during the parsing process.
-// The inertia tag contains a comma-separated list of options.
+// Tag format: `inertia:"name[,type][,mergeable][,concurrent][,omitempty]"`
 //
-// The first item in the list denotes the field name.
+// Tag components:
+//   - name: Prop name sent to client (required). Use "-" to skip the field.
+//   - type: One of "optional", "deferred", "always", or empty (regular prop)
+//   - mergeable: Include literal "mergeable" to enable merge behavior
+//   - concurrent: Include literal "concurrent" for parallel resolution (deferred props only)
+//   - omitempty: Include literal "omitempty" to skip zero-value fields
 //
-// The second item in the list denotes the field's behavior and can be one of the following:
-//   - "optional": The field is optional and will be included in the response if it is present.
-//   - "deferred": The field is deferred and will be included in the response if it is present.
-//   - "always": The field is always included in the response.
-//   - empty string: The field is omitted from the response.
+// Prop types:
+//   - (empty): Regular prop, included on initial and partial renders
+//   - "optional": Lazy prop, resolved only when explicitly requested
+//   - "deferred": Lazy prop, loaded after initial render in named groups
+//   - "always": Always included, ignores partial reload filters
 //
-// The third positional item in the tag can be one of the following:
-//   - "mergeable": The field is mergeable and will be merged with the existing value if it is present.
-//   - empty string: The field is not mergeable.
+// Deferred prop grouping:
 //
-// The fourth positional item in the tag can be one of the following:
-//   - "omitempty": The field is omitted from the response if it is empty.
-//   - empty string: The field is not omitted from the response if it is empty.
+//	Use `inertiagroup:"groupname"` to assign deferred props to named groups.
+//	Props in the same group are resolved together. Defaults to "default" group.
+//	Returns an error if inertiagroup is used on non-deferred props.
 //
-// By default, deferred (optional, deferred) fields are assigned to the
-// default group "default". An optional "inertiagroup" tag can be used for
-// grouping deferrable fields. If a non-deferrable field is tagged by "inertiagroup"
-// an error will be returned.
-// The argument of the "inertiagroup" tag denotes the group name into which the field belongs.
+// Field value requirements:
+//   - Optional/deferred fields must be Lazy or LazyFunc type
+//   - Regular/always fields can be any JSON-serializable type
+//
+// Example:
+//
+//	type PageProps struct {
+//	    UserID    int              `inertia:"user_id,always"`
+//	    Posts     []Post           `inertia:"posts"`
+//	    Analytics LazyFunc         `inertia:"analytics,deferred,concurrent" inertiagroup:"metrics"`
+//	    Optional  LazyFunc         `inertia:"extra,optional,omitempty"`
+//	}
 func ParseStruct(v any) (Props, error) {
 	val := reflect.ValueOf(v)
 	if val.Kind() != reflect.Ptr {

@@ -12,12 +12,16 @@ var (
 
 const DefaultDeferredGroup = "default"
 
-// Prop represents a single page property.
+// Prop represents a single property passed to an Inertia page component.
+// Props control data visibility, lazy loading, merging behavior, and resolution timing.
 //
-// Use convenient intstanciation functions to create a new property
-// such as NewProp, NewDeferred, NewAlways and NewOptional.
+// Create props using constructor functions:
+//   - NewProp: Standard prop, included on initial render
+//   - NewAlways: Always included, ignores partial reload filters
+//   - NewOptional: Lazy-loaded, only resolved when explicitly requested
+//   - NewDeferred: Lazy-loaded in groups, supports concurrent resolution
 //
-// Props can be attached to a rendering context using WithProps helper.
+// Attach props to a page using WithProps option.
 type Prop struct {
 	val        any
 	valFn      Lazy // optional, deferred
@@ -30,51 +34,47 @@ type Prop struct {
 	concurrent bool // deferred
 }
 
-// DeferredOptions represents a.
+// DeferredOptions configures the behavior of deferred props.
 type DeferredOptions struct {
-	// Group defines deferred prop resolution group.
-	//
-	// If Group is not provided, it defaults to DefaultDeferredGroup.
+	// Group assigns this prop to a named deferred group.
+	// Props in the same group are resolved together when requested by the client.
+	// Defaults to DefaultDeferredGroup if not specified.
 	Group string
 
-	// Merge defines props update resolution. If it is false prop is
-	// overridden, otherwise merged.
-	//
-	// Default to false.
+	// Merge determines how updates are handled on partial reloads.
+	// If true, the prop value is merged with the existing client-side value.
+	// If false, the value is replaced entirely. Defaults to false.
 	Merge bool
 
-	// Concurrent defines whether property resolution is concurrent.
-	//
-	// Properties marked as concurrent are grouped in a separate batch
-	// and resolved concurrently.
+	// Concurrent enables parallel resolution for this prop.
+	// When true, this prop can be resolved concurrently with other concurrent props
+	// within the same request, up to the configured concurrency limit.
 	Concurrent bool
 }
 
 type (
-	// Lazy represents prop's value that is resolved only when it's requested.
+	// Lazy represents a prop value that is resolved on-demand rather than eagerly.
+	// Used for optional and deferred props to avoid unnecessary computation.
 	Lazy interface {
-		// Value returns prop's value.
-		//
-		// The returned value must be JSON serializable.
+		// Value resolves and returns the prop's value.
+		// The returned value must be JSON-serializable.
 		Value(context.Context) (any, error)
 	}
 
-	// The LazyFunc type is an adapter to allow the use of ordinary functions
-	// where Lazy is expected.
-	// If f is a function with the appropriate signature, LazyFunc(f) is a
-	// [Lazy] that calls f.
-	//
-	// The returned value must be JSON serializable.
+	// LazyFunc is a function adapter that implements the Lazy interface.
+	// It allows using ordinary functions as lazy prop values.
+	// The returned value must be JSON-serializable.
 	LazyFunc func(context.Context) (any, error)
 )
 
 // Value calls `fn()`.
 func (fn LazyFunc) Value(ctx context.Context) (any, error) { return fn(ctx) }
 
-// NewDeferred creates a new deferred prop that is resolved only when
-// it's requested.
+// NewDeferred creates a deferred prop that is lazy-loaded by the client after initial render.
+// Deferred props reduce initial page load time by deferring expensive computations.
 //
-// If opts is nil, default options is used.
+// The client can request deferred props individually or by group.
+// If opts is nil, default options are used (default group, no merging, sequential resolution).
 func NewDeferred(key string, fn Lazy, opts *DeferredOptions) Prop {
 	//nolint:exhaustruct
 	prop := Prop{
@@ -96,8 +96,9 @@ func NewDeferred(key string, fn Lazy, opts *DeferredOptions) Prop {
 	return prop
 }
 
-// NewAlways create a new props that is always included in the response.
-// It ignores the X-Inertia-Partial-Data and X-Inertia-Partial-Except headers.
+// NewAlways creates a prop that is always included in responses.
+// Unlike regular props, it ignores partial reload filters (X-Inertia-Partial-Data/Except headers).
+// Use for critical data that must always be present, such as authentication state or global config.
 func NewAlways(key string, value any) Prop {
 	//nolint:exhaustruct
 	return Prop{
@@ -107,8 +108,9 @@ func NewAlways(key string, value any) Prop {
 	}
 }
 
-// NewOptional creates a new prop that is included in the response only if
-// it's requested.
+// NewOptional creates a lazily-evaluated prop included only during partial reloads when explicitly requested.
+// Useful for expensive computations that aren't needed on every render.
+// The value function is only called when the client specifically requests this prop.
 func NewOptional(key string, fn Lazy) Prop {
 	//nolint:exhaustruct
 	return Prop{
@@ -119,14 +121,14 @@ func NewOptional(key string, fn Lazy) Prop {
 	}
 }
 
-// PropOptions is the options for the prop.
+// PropOptions configures standard prop behavior.
 type PropOptions struct {
-	// Merge indicates whether the prop can be merged with other props.
+	// Merge determines whether this prop's value is merged or replaced during partial reloads.
 	Merge bool
 }
 
-// NewProp creates a new regular prop.
-// opts can be nil.
+// NewProp creates a standard prop included on initial page load and partial reloads.
+// If opts is nil, default options are used (no merging).
 func NewProp(key string, val any, opts *PropOptions) Prop {
 	//nolint:exhaustruct
 	prop := Prop{
@@ -159,13 +161,13 @@ func (p Prop) value(ctx context.Context) (any, error) {
 	return p.val, nil
 }
 
-// Proper is an interface that represents a collection of props.
-// It is used to attach props to the rendering context.
+// Proper represents a collection of props that can be attached to a render context.
+// Implemented by both individual Prop and Props slice types.
 type Proper interface {
-	// Props returns the list of props.
+	// Props returns the underlying prop slice.
 	Props() []Prop
 
-	// Len returns the number of props.
+	// Len returns the number of props in the collection.
 	Len() int
 }
 

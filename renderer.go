@@ -39,32 +39,30 @@ var DefaultConcurrency = runtime.GOMAXPROCS(0) //nolint:gochecknoglobals
 // Page represents an Inertia.js page that is sent to the client.
 type Page = inertiabase.Page
 
-// Config represents the configuration for the Renderer.
+// Config configures the Renderer behavior and capabilities.
 type Config struct {
-	// SsrClient is the client used for server-side rendering.
-	//
-	// It is optional and can be nil.
+	// SsrClient enables server-side rendering of Inertia pages.
+	// If nil, client-side rendering is used (page data is embedded in a div element).
 	SsrClient SsrClient
 
-	// RootViewAttrs are the attributes to be applied to the root HTML element.
-	//
-	// It is optional and can be nil.
+	// RootViewAttrs are HTML attributes applied to the root element (typically a div).
+	// Optional. Example: {"class": "app-container", "data-theme": "dark"}
 	RootViewAttrs map[string]string
 
-	// Version is the version of the Inertia.js app.
-	//
-	// If a client version is not matching the server version, the
+	// Version identifies the current asset version (e.g., build hash or timestamp).
+	// When the client's version doesn't match, the middleware triggers a full page reload
+	// to ensure the client gets the latest assets.
 	Version string
 
-	// RootViewID is the root HTML element ID to which
-	// the Inertia.js app is mounted.
+	// RootViewID is the HTML element ID where the Inertia app mounts.
+	// Defaults to "app" if not specified.
 	RootViewID string
 
-	// JSONMarshalOptions is the JSON marshal options for the props.
+	// JSONMarshalOptions configures JSON serialization for page props and data.
 	JSONMarshalOptions []json.Options
 
-	// Concurrency is the concurrency level for props resolution
-	// marked as concurrently resolvable.
+	// Concurrency sets the default maximum number of props that can be resolved concurrently.
+	// Defaults to runtime.GOMAXPROCS(0). Only affects props marked as concurrent.
 	Concurrency int
 }
 
@@ -74,11 +72,10 @@ func (c *Config) defaults() {
 	c.Concurrency = cmp.Or(c.Concurrency, DefaultConcurrency)
 }
 
-// Renderer is a renderer that sends Inertia.js responses.
-// It uses html/template to render HTML responses.
-// Optionally, it supports server-side rendering using a SsrClient.
+// Renderer handles Inertia.js page responses, supporting both client-side and server-side rendering.
+// It manages HTML template rendering, JSON serialization, and prop resolution.
 //
-// To create a new Renderer, use the New or FromFS functions.
+// Create a Renderer using New or FromFS constructor functions.
 type Renderer struct {
 	ssrClient          SsrClient
 	jsonMarshalOptions []json.Options
@@ -89,9 +86,8 @@ type Renderer struct {
 	concurrency        int
 }
 
-// New creates a new Renderer instance.
-//
-// If config is nil, the default configuration is used.
+// New creates a Renderer with the provided HTML template and configuration.
+// If config is nil, default values are used (client-side rendering, "app" as root ID, etc.).
 func New(t *template.Template, config *Config) *Renderer {
 	if config == nil {
 		//nolint:exhaustruct
@@ -121,8 +117,9 @@ func New(t *template.Template, config *Config) *Renderer {
 	return r
 }
 
-// FromFS creates a new Renderer instance from the given file system.
-// If the config is nil, the default configuration is used.
+// FromFS creates a Renderer by loading an HTML template from a file system.
+// Returns an error if the template cannot be parsed.
+// If config is nil, default values are used.
 func FromFS(fsys fs.FS, path string, config *Config) (*Renderer, error) {
 	debug.Assert(fsys != nil, "expected fsys to be defined")
 	debug.Assert(path != "", "expected path to be defined")
@@ -142,12 +139,14 @@ func MustFromFS(fsys fs.FS, path string, config *Config) *Renderer {
 	return must.Must(FromFS(fsys, path, config))
 }
 
-// Version returns a version of the inertia build.
+// Version returns the current asset version string used for client version validation.
 func (r *Renderer) Version() string { return r.version }
 
-// Render sends a page component using Inertia.js protocol.
-// If the request is an Inertia.js request, the response will be JSON,
-// otherwise, it will be an HTML response.
+// Render sends an Inertia page response, automatically choosing the format:
+//   - JSON for Inertia requests (XHR navigation)
+//   - HTML for initial page loads or non-Inertia requests
+//
+// The renderCtx configures props, validation errors, and other page-specific settings.
 func (r *Renderer) Render(w http.ResponseWriter, req *http.Request, name string, renderCtx RenderContext) error {
 	renderCtx.Concurrency = max(cmp.Or(renderCtx.Concurrency, r.concurrency), 0)
 
@@ -435,17 +434,24 @@ func (r *Renderer) makeValidationErrors(errorers []ValidationErrorer, errorBag s
 	return NewAlways("errors", m)
 }
 
-// TemplateData represents the data that is passed to the HTML template.
+// TemplateData contains the data passed to the HTML template during rendering.
 type TemplateData struct {
-	T           any
+	// T is custom application data available to the template.
+	T any
+
+	// InertiaHead contains SSR-generated head elements (title, meta tags, etc.).
+	// Empty when using client-side rendering.
 	InertiaHead template.HTML
+
+	// InertiaBody contains the rendered page content:
+	//   - SSR: The pre-rendered component HTML
+	//   - CSR: A div with data-page attribute containing the page JSON
 	InertiaBody template.HTML
 }
 
-// Location sends a redirect response to the client to guide to the
-// external URL.
-//
-// External URL is any URL that is not powered by Inertia.js.
+// Location redirects to an external URL (outside the Inertia app).
+// For Inertia requests, it uses a 409 Conflict response with X-Inertia-Location header.
+// For regular requests, it performs a standard HTTP redirect.
 func Location(w http.ResponseWriter, r *http.Request, url string) {
 	if isInertiaRequest(r) {
 		h := w.Header()
@@ -461,13 +467,14 @@ func Location(w http.ResponseWriter, r *http.Request, url string) {
 	inertiaredirect.Redirect(w, r, url)
 }
 
-// Redirect sends a redirect response to the client.
+// Redirect sends a standard HTTP redirect response (within the Inertia app).
 func Redirect(w http.ResponseWriter, r *http.Request, url string) {
 	inertiaredirect.Redirect(w, r, url)
 }
 
-// ErrorBagFromRequest extracts the Inertia.js error bag from the request,
-// if present. Otherwise, it returns the default error bag.
+// ErrorBagFromRequest extracts the error bag name from the X-Inertia-Error-Bag header.
+// Returns the default error bag (empty string) if the header is not present.
+// Used to scope validation errors to specific forms on a page.
 func ErrorBagFromRequest(r *http.Request) string {
 	errorBag := r.Header.Get(inertiaheader.HeaderXInertiaErrorBag)
 	if errorBag == "" {

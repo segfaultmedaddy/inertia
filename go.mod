@@ -2,7 +2,6 @@ module go.inout.gg/inertia
 
 go 1.25
 
-//nolint:gomoddirectives
 replace go.inout.gg/foundations => ../foundations
 
 require (

@@ -7,12 +7,14 @@ import (
 )
 
 type (
-	// SsrClient is a client that makes requests to a server-side rendering service.
-	SsrClient       = inertiassr.SsrClient
+	// SsrClient communicates with a server-side rendering service to pre-render Inertia pages.
+	SsrClient = inertiassr.SsrClient
+
+	// SsrTemplateData contains the HTML head and body sections returned by SSR rendering.
 	SsrTemplateData = inertiassr.SsrTemplateData
 )
 
-// NewHTTPSsrClient creates a new SsrClient that makes requests to the given HTTP client.
+// NewHTTPSsrClient creates an HTTP-based SSR client that sends render requests to the specified URL.
 // If client is nil, http.DefaultClient is used.
 func NewHTTPSsrClient(url string, client *http.Client) SsrClient {
 	return inertiassr.NewHTTPSsrClient(url, client)
