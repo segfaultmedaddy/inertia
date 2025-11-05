@@ -354,11 +354,10 @@ type MountOpts[M any] struct {
 // Mount registers an Endpoint on a Mux, creating an HTTP handler that:
 //   - Automatically parses JSON and form data into the message type M
 //   - Validates requests using the configured Validator
-//   - Handles validation errors per Inertia protocol (flash and redirect)
 //   - Executes the endpoint and renders the Response
 //
 // The endpoint's Meta() defines the HTTP method and path pattern.
-func Mount[M any](mux Mux, e Endpoint[M], opts *MountOpts[M]) {
+func Mount[M any](mux Mux, endpoint Endpoint[M], opts *MountOpts[M]) {
 	if opts == nil {
 		//nolint:exhaustruct
 		opts = &MountOpts[M]{}
@@ -367,10 +366,10 @@ func Mount[M any](mux Mux, e Endpoint[M], opts *MountOpts[M]) {
 	opts.ErrorHandler = cmp.Or(opts.ErrorHandler, DefaultErrorHandler)
 	opts.FormDecoder = cmp.Or(opts.FormDecoder, DefaultFormDecoder)
 
-	debug.Assert(e != nil, "Executor must not be nil")
+	debug.Assert(endpoint != nil, "Executor must not be nil")
 	debug.Assert(opts.ErrorHandler != nil, "Executor must specify the error handler")
 
-	m := e.Meta()
+	m := endpoint.Meta()
 
 	debug.Assert(m.Method != "", "Executor must specify the HTTP method")
 	debug.Assert(m.Path != "", "Executor must specify the HTTP path")
@@ -379,7 +378,16 @@ func Mount[M any](mux Mux, e Endpoint[M], opts *MountOpts[M]) {
 
 	d("Mounting executor on pattern: %s", pattern)
 
-	mux.Handle(pattern, newHandler(e, opts.ErrorHandler, opts.Validator, opts.FormDecoder, opts.JSONUnmarshalOptions))
+	mux.Handle(
+		pattern,
+		newHandler(
+			endpoint,
+			opts.ErrorHandler,
+			opts.Validator,
+			opts.FormDecoder,
+			opts.JSONUnmarshalOptions,
+		),
+	)
 }
 
 // newHandler creates a new http.Handler for the given endpoint.

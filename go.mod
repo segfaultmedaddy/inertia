@@ -9,8 +9,8 @@ require (
 	github.com/go-json-experiment/json v0.0.0-20250910080747-cc2cfa0554c3
 	github.com/go-playground/form/v4 v4.2.1
 	github.com/stretchr/testify v1.11.1
-	go.inout.gg/foundations v0.0.0-00010101000000-000000000000
-	go.uber.org/mock v0.5.2
+	go.inout.gg/foundations v0.0.0-20250914201037-56ca2698a3c8
+	go.uber.org/mock v0.6.0
 )
 
 require (
