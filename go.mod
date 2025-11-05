@@ -6,10 +6,10 @@ replace go.inout.gg/foundations => ../foundations
 
 require (
 	github.com/alitto/pond/v2 v2.5.0
-	github.com/go-json-experiment/json v0.0.0-20250910080747-cc2cfa0554c3
+	github.com/go-json-experiment/json v0.0.0-20251027170946-4849db3c2f7e
 	github.com/go-playground/form/v4 v4.2.1
 	github.com/stretchr/testify v1.11.1
-	go.inout.gg/foundations v0.0.0-20250914201037-56ca2698a3c8
+	go.inout.gg/foundations v0.0.0-20251010211659-c9f5635cc2d0
 	go.uber.org/mock v0.6.0
 )
 
