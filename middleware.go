@@ -8,7 +8,7 @@ import (
 
 	"go.inout.gg/foundations/must"
 
-	"go.inout.gg/inertia/internal/inertiaheader"
+	"go.segfaultmedaddy.com/inertia/internal/inertiaheader"
 )
 
 type ctxKey struct{}

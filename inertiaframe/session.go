@@ -12,7 +12,7 @@ import (
 
 	"go.inout.gg/foundations/http/httpcookie"
 
-	"go.inout.gg/inertia"
+	"go.segfaultmedaddy.com/inertia"
 )
 
 type sessCtx struct{}

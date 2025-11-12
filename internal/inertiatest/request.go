@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	"go.inout.gg/inertia/internal/inertiaheader"
+	"go.segfaultmedaddy.com/inertia/internal/inertiaheader"
 )
 
 type RequestConfig struct {

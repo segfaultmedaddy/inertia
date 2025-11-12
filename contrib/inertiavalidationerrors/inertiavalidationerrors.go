@@ -3,7 +3,7 @@ package inertiavalidationerrors
 import (
 	"encoding/gob"
 
-	"go.inout.gg/inertia"
+	"go.segfaultmedaddy.com/inertia"
 )
 
 var (

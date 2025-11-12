@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"go.inout.gg/inertia/internal/inertiaheader"
-	"go.inout.gg/inertia/internal/inertiassr"
-	"go.inout.gg/inertia/internal/inertiatest"
+	"go.segfaultmedaddy.com/inertia/internal/inertiaheader"
+	"go.segfaultmedaddy.com/inertia/internal/inertiassr"
+	"go.segfaultmedaddy.com/inertia/internal/inertiatest"
 )
 
 //nolint:gochecknoglobals

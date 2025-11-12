@@ -8,8 +8,8 @@ import (
 
 	"github.com/go-json-experiment/json"
 
-	"go.inout.gg/inertia/internal/inertiabase"
-	"go.inout.gg/inertia/internal/inertiaheader"
+	"go.segfaultmedaddy.com/inertia/internal/inertiabase"
+	"go.segfaultmedaddy.com/inertia/internal/inertiaheader"
 )
 
 var _ SsrClient = (*ssr)(nil)

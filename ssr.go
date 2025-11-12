@@ -3,7 +3,7 @@ package inertia
 import (
 	"net/http"
 
-	"go.inout.gg/inertia/internal/inertiassr"
+	"go.segfaultmedaddy.com/inertia/internal/inertiassr"
 )
 
 type (

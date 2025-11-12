@@ -19,9 +19,9 @@ import (
 	"go.inout.gg/foundations/http/httpmiddleware"
 	"go.inout.gg/foundations/must"
 
-	"go.inout.gg/inertia"
-	"go.inout.gg/inertia/internal/inertiaheader"
-	"go.inout.gg/inertia/internal/inertiaredirect"
+	"go.segfaultmedaddy.com/inertia"
+	"go.segfaultmedaddy.com/inertia/internal/inertiaheader"
+	"go.segfaultmedaddy.com/inertia/internal/inertiaredirect"
 )
 
 var d = debug.Debuglog("inertiaframe") //nolint:gochecknoglobals

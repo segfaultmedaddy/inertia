@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"go.inout.gg/inertia/internal/inertiatest"
+	"go.segfaultmedaddy.com/inertia/internal/inertiatest"
 )
 
 //nolint:gochecknoglobals

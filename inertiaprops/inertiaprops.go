@@ -1,6 +1,6 @@
 package inertiaprops
 
-import "go.inout.gg/inertia"
+import "go.segfaultmedaddy.com/inertia"
 
 var _ inertia.Proper = (*Map)(nil)
 

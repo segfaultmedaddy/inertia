@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.inout.gg/inertia/internal/inertiabase"
+	"go.segfaultmedaddy.com/inertia/internal/inertiabase"
 )
 
 func TestNewHTTPSsrClient(t *testing.T) {
