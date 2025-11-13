@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 
+	"go.inout.gg/foundations/debug"
 	"go.inout.gg/foundations/must"
 
 	"go.segfaultmedaddy.com/inertia/internal/inertiaheader"
@@ -21,42 +22,50 @@ var kCtxKey = ctxKey{}
 //nolint:gochecknoglobals
 var seeOtherMethods = []string{http.MethodPatch, http.MethodPut, http.MethodDelete}
 
+var DefaultEmptyResponseHandler = func(w http.ResponseWriter, _ *http.Request) {
+	http.Error(w, "Empty response", http.StatusNoContent)
+}
+
+var DefaultVersionMismatchHandler = func(w http.ResponseWriter, r *http.Request) {
+	Location(w, r, r.RequestURI)
+}
+
 // MiddlewareConfig configures the behavior of the Inertia.js middleware.
 type MiddlewareConfig struct {
 	// EmptyResponseHandler is called when a handler produces no response body.
+	//
 	// If nil, defaults to returning HTTP 204 No Content with an error message.
 	EmptyResponseHandler http.HandlerFunc
 
 	// VersionMismatchHandler is called when the client's asset version doesn't match the server's.
+	//
 	// If nil, defaults to redirecting the client to the current URL to reload the page with fresh assets.
 	VersionMismatchHandler http.HandlerFunc
 }
 
 func (m *MiddlewareConfig) defaults() {
 	if m.EmptyResponseHandler == nil {
-		m.EmptyResponseHandler = func(w http.ResponseWriter, _ *http.Request) {
-			http.Error(w, "Empty response", http.StatusNoContent)
-		}
+		m.EmptyResponseHandler = DefaultEmptyResponseHandler
 	}
 
 	if m.VersionMismatchHandler == nil {
-		m.VersionMismatchHandler = func(w http.ResponseWriter, r *http.Request) {
-			Location(w, r, r.RequestURI)
-		}
+		m.VersionMismatchHandler = DefaultVersionMismatchHandler
 	}
+
+	debug.Assert(m.EmptyResponseHandler != nil, "EmptyResponseHandler must be set")
+	debug.Assert(m.VersionMismatchHandler != nil, "VersionMismatchHandler must be set")
 }
 
 // NewMiddleware creates an HTTP middleware that enables Inertia.js protocol handling.
 // It intercepts requests to determine if they are Inertia requests, handles version validation,
-// and manages response formatting (JSON for Inertia requests, HTML otherwise).
+// and manages response formatting (JSON for subsequent Inertia requests, HTML otherwise).
 //
-// The middleware also handles HTTP 302 redirects by converting them to 303 for PUT/PATCH/DELETE requests
-// as per the Inertia.js specification.
+// The middleware automatically handles HTTP 302 redirects by converting them to 303 for PUT/PATCH/DELETE
+// requests as per the Inertia.js specification.
 //
-// Once the middleware is set up, Render can be used to generate Inertia responses.
+// Once the middleware is set up, Render can be used to create Inertia responses.
 func NewMiddleware(renderer *Renderer, opts ...func(*MiddlewareConfig)) func(http.Handler) http.Handler {
-	//nolint:exhaustruct
-	config := MiddlewareConfig{}
+	var config MiddlewareConfig
 	for _, opt := range opts {
 		opt(&config)
 	}
@@ -75,9 +84,10 @@ func NewMiddleware(renderer *Renderer, opts ...func(*MiddlewareConfig)) func(htt
 				return
 			}
 
-			externalVersion := r.Header.Get(inertiaheader.HeaderXInertiaVersion)
-			if externalVersion != renderer.Version() {
-				Location(w, r, r.RequestURI)
+			clientVersion := r.Header.Get(inertiaheader.HeaderXInertiaVersion)
+			serverVersion := renderer.Version()
+			if clientVersion != serverVersion {
+				config.VersionMismatchHandler(w, r)
 				return
 			}
 

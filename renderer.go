@@ -1,7 +1,3 @@
-// Package inertia implements the protocol for communication with
-// the Inertia.js client-side framework.
-//
-// For detailed protocol documentation, visit https://inertiajs.com/the-protocol
 package inertia
 
 import (
@@ -440,16 +436,14 @@ type TemplateData struct {
 	T any
 
 	// InertiaHead contains SSR-generated head elements (title, meta tags, etc.).
-	// Empty when using client-side rendering.
 	InertiaHead template.HTML
 
-	// InertiaBody contains the rendered page content:
-	//   - SSR: The pre-rendered component HTML
-	//   - CSR: A div with data-page attribute containing the page JSON
+	// InertiaBody contains the rendered page content.
 	InertiaBody template.HTML
 }
 
-// Location redirects to an external URL (outside the Inertia app).
+// Location redirects to an external URL outside of the Inertia app.
+//
 // For Inertia requests, it uses a 409 Conflict response with X-Inertia-Location header.
 // For regular requests, it performs a standard HTTP redirect.
 func Location(w http.ResponseWriter, r *http.Request, url string) {
@@ -467,12 +461,13 @@ func Location(w http.ResponseWriter, r *http.Request, url string) {
 	inertiaredirect.Redirect(w, r, url)
 }
 
-// Redirect sends a standard HTTP redirect response (within the Inertia app).
+// Redirect sends a redirect response to the Inertia app page.
 func Redirect(w http.ResponseWriter, r *http.Request, url string) {
 	inertiaredirect.Redirect(w, r, url)
 }
 
 // ErrorBagFromRequest extracts the error bag name from the X-Inertia-Error-Bag header.
+//
 // Returns the default error bag (empty string) if the header is not present.
 // Used to scope validation errors to specific forms on a page.
 func ErrorBagFromRequest(r *http.Request) string {

@@ -1,8 +1,4 @@
 // Package vite provides Vite integration for Inertia.js applications.
-//
-// In development mode, it injects the Vite client and React Refresh scripts.
-// In production mode, it resolves assets from the Vite manifest file to include
-// the correct hashed filenames and dependencies.
 package vite
 
 import (
@@ -11,6 +7,7 @@ import (
 	"html/template"
 	"io/fs"
 
+	"go.inout.gg/foundations/debug"
 	"go.inout.gg/foundations/must"
 )
 
@@ -25,6 +22,9 @@ type Config struct {
 func (c *Config) defaults() {
 	c.ViteAddress = cmp.Or(c.ViteAddress, DefaultViteAddress)
 	c.TemplateName = cmp.Or(c.TemplateName, "inertia")
+
+	debug.Assert(c.ViteAddress != "", "vite address must be set")
+	debug.Assert(c.TemplateName != "", "template name must be set")
 }
 
 // NewTemplate creates an html/template with Vite support from a template string.

@@ -4,6 +4,7 @@
   inputs = {
     nixpkgs.url = "nixpkgs/nixos-unstable";
     treefmt-nix.url = "github:numtide/treefmt-nix";
+    git-hooks-nix.url = "github:cachix/git-hooks.nix";
     flake-root.url = "github:srid/flake-root";
     flake-parts.url = "github:hercules-ci/flake-parts";
     devshell.url = "github:numtide/devshell";
@@ -28,6 +29,7 @@
       imports = [
         inputs.devshell.flakeModule
         inputs.treefmt-nix.flakeModule
+        inputs.git-hooks-nix.flakeModule
         inputs.flake-root.flakeModule
       ];
 
@@ -47,23 +49,40 @@
             programs = {
               nixfmt.enable = true;
               gofumpt.enable = true;
+              typos.enable = true;
+            };
+          };
+
+          pre-commit = {
+            settings.enabledPackages = with pkgs; [
+              just
+            ];
+
+            settings.hooks = {
+              lint = {
+                enable = true;
+                name = "lint";
+                description = "Go Lint";
+                entry = ''
+                  just lint
+                '';
+                pass_filenames = false;
+              };
+
+              nixfmt.enable = true;
             };
           };
 
           devshells.default = {
             packages = with pkgs; [
-              watchexec
+              nodejs
               just
-              lefthook
-              typos
-
-              go_1_25
+              mockgen
               gotools
               gcc
+              gopls
+              govulncheck
               golangci-lint
-              mockgen
-
-              nodejs
             ];
 
             env = [

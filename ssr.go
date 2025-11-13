@@ -17,5 +17,9 @@ type (
 // NewHTTPSsrClient creates an HTTP-based SSR client that sends render requests to the specified URL.
 // If client is nil, http.DefaultClient is used.
 func NewHTTPSsrClient(url string, client *http.Client) SsrClient {
+	if client == nil {
+		client = http.DefaultClient
+	}
+
 	return inertiassr.NewHTTPSsrClient(url, client)
 }

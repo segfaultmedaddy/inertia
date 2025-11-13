@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/go-json-experiment/json"
+	"go.inout.gg/foundations/debug"
 
 	"go.segfaultmedaddy.com/inertia/internal/inertiabase"
 	"go.segfaultmedaddy.com/inertia/internal/inertiaheader"
@@ -32,14 +33,15 @@ type ssr struct {
 }
 
 func NewHTTPSsrClient(url string, client *http.Client) SsrClient {
-	if client == nil {
-		client = http.DefaultClient
-	}
+	debug.Assert(url != "", "url must be provided")
+	debug.Assert(client != nil, "client must be provided")
 
 	return &ssr{client, url}
 }
 
 func (s *ssr) Render(ctx context.Context, p *inertiabase.Page) (*SsrTemplateData, error) {
+	debug.Assert(p != nil, "page must be set")
+
 	b, err := json.Marshal(p)
 	if err != nil {
 		return nil, fmt.Errorf("inertia: failed to marshal page: %w", err)

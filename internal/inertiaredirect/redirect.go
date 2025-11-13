@@ -13,6 +13,8 @@ var d = debug.Debuglog("inertia/redirect")
 //
 // It follows the redirect specification described here: https://inertiajs.com/redirects
 func Redirect(w http.ResponseWriter, r *http.Request, url string) {
+	debug.Assert(url != "", "url must be non-empty string")
+
 	// Redirect GET requests with a 302
 	statusCode := http.StatusSeeOther
 	if r.Method == http.MethodGet {
