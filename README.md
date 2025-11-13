@@ -9,7 +9,7 @@ Optionally, it provides an [opinionated framework](https://github.com/segfaultme
 
 ## Vite
 
-This library bundles a minimal adapter for the [Vite](https://vitejs.dev/) build tool available via `go.segfaultmedaddy.com/intertia/contrib/vite`.
+This library bundles a minimal adapter for the [Vite](https://vitejs.dev/) build tool available via `go.segfaultmedaddy.com/inertia/contrib/vite`.
 
 ## License
 
