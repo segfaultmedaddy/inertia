@@ -18,18 +18,19 @@ type Manifest struct {
 // ManifestEntry describes a single asset in the Vite build manifest.
 // It contains the asset's output path, dependencies, and metadata.
 type ManifestEntry struct {
-	Source         string   `json:"src"`            // Original source file path
-	File           string   `json:"file"`           // Output file path with hash
-	Name           string   `json:"name"`           // Entry name
-	CSS            []string `json:"css"`            // Associated CSS files
-	Assets         []string `json:"assets"`         // Associated static assets
-	Imports        []string `json:"imports"`        // Static import dependencies
-	DynamicImports []string `json:"dynamicImports"` // Dynamic import dependencies
-	IsEntry        bool     `json:"isEntry"`        // Whether this is an entry point
-	IsDynamicEntry bool     `json:"isDynamicEntry"` // Whether this is a dynamic entry
+	Source         string   `json:"src"`
+	File           string   `json:"file"`
+	Name           string   `json:"name"`
+	CSS            []string `json:"css"`
+	Assets         []string `json:"assets"`
+	Imports        []string `json:"imports"`
+	DynamicImports []string `json:"dynamicImports"`
+	IsEntry        bool     `json:"isEntry"`
+	IsDynamicEntry bool     `json:"isDynamicEntry"`
 }
 
 // HTML resolves a manifest entry and returns all required CSS and JS tags.
+//
 // It recursively walks the import graph to include all dependencies.
 // Returns (css, js, error) where css and js are ready-to-use HTML tags.
 func (m *Manifest) HTML(name string) ([]template.HTML, []template.HTML, error) {
@@ -40,9 +41,10 @@ func (m *Manifest) HTML(name string) ([]template.HTML, []template.HTML, error) {
 		return nil, nil, fmt.Errorf("inertia: entry %s not found in manifest", name)
 	}
 
-	var css []template.HTML
-
-	var js []template.HTML
+	var (
+		css []template.HTML
+		js  []template.HTML
+	)
 
 	var walk func(*ManifestEntry)
 
@@ -76,6 +78,7 @@ func (m *Manifest) HTML(name string) ([]template.HTML, []template.HTML, error) {
 }
 
 // ParseManifest parses a Vite build manifest from JSON bytes.
+//
 // The manifest maps entry point names to their compiled assets and dependencies.
 func ParseManifest(b []byte) (*Manifest, error) {
 	var raw rawManifest

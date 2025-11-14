@@ -22,10 +22,12 @@ var kCtxKey = ctxKey{}
 //nolint:gochecknoglobals
 var seeOtherMethods = []string{http.MethodPatch, http.MethodPut, http.MethodDelete}
 
+//nolint:gochecknoglobals
 var DefaultEmptyResponseHandler = func(w http.ResponseWriter, _ *http.Request) {
 	http.Error(w, "Empty response", http.StatusNoContent)
 }
 
+//nolint:gochecknoglobals
 var DefaultVersionMismatchHandler = func(w http.ResponseWriter, r *http.Request) {
 	Location(w, r, r.RequestURI)
 }
@@ -85,6 +87,7 @@ func NewMiddleware(renderer *Renderer, opts ...func(*MiddlewareConfig)) func(htt
 			}
 
 			clientVersion := r.Header.Get(inertiaheader.HeaderXInertiaVersion)
+
 			serverVersion := renderer.Version()
 			if clientVersion != serverVersion {
 				config.VersionMismatchHandler(w, r)

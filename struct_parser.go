@@ -26,7 +26,7 @@ var (
 	propConcurrent = "concurrent" //nolint:gochecknoglobals
 )
 
-var lazyType = reflect.TypeOf((*Lazy)(nil)).Elem() //nolint:gochecknoglobals
+var lazyType = reflect.TypeFor[Lazy]() //nolint:gochecknoglobals
 
 // ParseStruct converts a struct into a Props collection using struct tags.
 // It expects a struct pointer with JSON-encodable fields.

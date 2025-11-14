@@ -480,6 +480,7 @@ func newHandler[M any](
 		}
 
 		var props []inertia.Prop
+
 		if proper, ok := r.Context().Value(kCtxKey).(inertia.Proper); ok {
 			d("has shared props")
 

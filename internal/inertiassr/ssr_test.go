@@ -13,6 +13,7 @@ import (
 	"go.segfaultmedaddy.com/inertia/internal/inertiabase"
 )
 
+//nolint:gochecknoglobals
 var defaultClient = http.DefaultClient
 
 func TestSsrRender(t *testing.T) {
