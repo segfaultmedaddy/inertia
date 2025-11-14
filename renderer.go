@@ -38,19 +38,18 @@ type Page = inertiabase.Page
 // Config configures the Renderer behavior and capabilities.
 type Config struct {
 	// SsrClient enables server-side rendering of Inertia pages.
-	// If nil, client-side rendering is used (page data is embedded in a div element).
+	//
+	// If nil, only client-side rendering is used.
 	SsrClient SsrClient
 
-	// RootViewAttrs are HTML attributes applied to the root element (typically a div).
-	// Optional. Example: {"class": "app-container", "data-theme": "dark"}
+	// RootViewAttrs are HTML attributes applied to the root element.
 	RootViewAttrs map[string]string
 
 	// Version identifies the current asset version (e.g., build hash or timestamp).
-	// When the client's version doesn't match, the middleware triggers a full page reload
-	// to ensure the client gets the latest assets.
 	Version string
 
 	// RootViewID is the HTML element ID where the Inertia app mounts.
+	//
 	// Defaults to "app" if not specified.
 	RootViewID string
 
@@ -58,14 +57,17 @@ type Config struct {
 	JSONMarshalOptions []json.Options
 
 	// Concurrency sets the default maximum number of props that can be resolved concurrently.
-	// Defaults to runtime.GOMAXPROCS(0). Only affects props marked as concurrent.
+	// It only affects props marked as concurrent.
+	//
+	// Defaults to runtime.GOMAXPROCS(0).
 	Concurrency int
 }
 
-// defaults sets the default values for the configuration.
 func (c *Config) defaults() {
 	c.RootViewID = cmp.Or(c.RootViewID, DefaultRootViewID)
 	c.Concurrency = cmp.Or(c.Concurrency, DefaultConcurrency)
+
+	debug.Assert(c.RootViewID != "", "RooViewID must be non-empty string")
 }
 
 // Renderer handles Inertia.js page responses, supporting both client-side and server-side rendering.
@@ -83,7 +85,10 @@ type Renderer struct {
 }
 
 // New creates a Renderer with the provided HTML template and configuration.
-// If config is nil, default values are used (client-side rendering, "app" as root ID, etc.).
+//
+// If config is nil, default values are used:
+//   - RootViewID: "app"
+//   - Concurrency: GOMAXPROCS(0)
 func New(t *template.Template, config *Config) *Renderer {
 	if config == nil {
 		//nolint:exhaustruct
@@ -114,7 +119,7 @@ func New(t *template.Template, config *Config) *Renderer {
 }
 
 // FromFS creates a Renderer by loading an HTML template from a file system.
-// Returns an error if the template cannot be parsed.
+//
 // If config is nil, default values are used.
 func FromFS(fsys fs.FS, path string, config *Config) (*Renderer, error) {
 	debug.Assert(fsys != nil, "expected fsys to be defined")

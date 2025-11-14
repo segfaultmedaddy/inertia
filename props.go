@@ -169,7 +169,6 @@ func (p Prop) value(ctx context.Context) (any, error) {
 }
 
 // Proper represents a collection of props that can be attached to a render context.
-// Implemented by both individual Prop and Props slice types.
 type Proper interface {
 	// Props returns the underlying prop slice.
 	Props() []Prop
