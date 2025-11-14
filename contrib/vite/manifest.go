@@ -9,10 +9,14 @@ import (
 
 type rawManifest = map[string]*ManifestEntry
 
+// Manifest represents a parsed Vite build manifest (manifest.json).
+// It maps entry points to their compiled assets and dependencies.
 type Manifest struct {
 	raw rawManifest
 }
 
+// ManifestEntry describes a single asset in the Vite build manifest.
+// It contains the asset's output path, dependencies, and metadata.
 type ManifestEntry struct {
 	Source         string   `json:"src"`
 	File           string   `json:"file"`
@@ -25,6 +29,10 @@ type ManifestEntry struct {
 	IsDynamicEntry bool     `json:"isDynamicEntry"`
 }
 
+// HTML resolves a manifest entry and returns all required CSS and JS tags.
+//
+// It recursively walks the import graph to include all dependencies.
+// Returns (css, js, error) where css and js are ready-to-use HTML tags.
 func (m *Manifest) HTML(name string) ([]template.HTML, []template.HTML, error) {
 	seen := make(map[string]bool)
 
@@ -33,9 +41,10 @@ func (m *Manifest) HTML(name string) ([]template.HTML, []template.HTML, error) {
 		return nil, nil, fmt.Errorf("inertia: entry %s not found in manifest", name)
 	}
 
-	var css []template.HTML
-
-	var js []template.HTML
+	var (
+		css []template.HTML
+		js  []template.HTML
+	)
 
 	var walk func(*ManifestEntry)
 
@@ -68,9 +77,9 @@ func (m *Manifest) HTML(name string) ([]template.HTML, []template.HTML, error) {
 	return css, js, nil
 }
 
-// ParseManifest parses a Vite manifest from a byte slice.
-// The manifest is a JSON object where keys are entry names and values are
-// manifest entries.
+// ParseManifest parses a Vite build manifest from JSON bytes.
+//
+// The manifest maps entry point names to their compiled assets and dependencies.
 func ParseManifest(b []byte) (*Manifest, error) {
 	var raw rawManifest
 
@@ -82,7 +91,7 @@ func ParseManifest(b []byte) (*Manifest, error) {
 	return &Manifest{raw: raw}, nil
 }
 
-// ParseManifestFromFS reads a Vite manifest from a file system.
+// ParseManifestFromFS reads and parses a Vite manifest from a file system.
 func ParseManifestFromFS(fsys fs.FS, path string) (*Manifest, error) {
 	b, err := fs.ReadFile(fsys, path)
 	if err != nil {

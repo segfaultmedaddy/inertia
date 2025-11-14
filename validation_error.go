@@ -23,18 +23,23 @@ func init() {
 	gob.Register(&ValidationErrors{})
 }
 
-// ValidationError represents a validation error.
+// ValidationError represents a single field validation failure.
 type ValidationError interface {
-	// Field returns the field name associated with the validation error.
+	// Field returns the name of the field that failed validation.
 	Field() string
 
-	// Error returns the error message associated with the validation error.
+	// Error returns the human-readable error message describing the validation failure.
 	Error() string
 }
 
+// ValidationErrorer is a collection of validation errors that can be sent to the client.
 type ValidationErrorer interface {
 	error
+
+	// ValidationErrors returns all validation errors in the collection.
 	ValidationErrors() []ValidationError
+
+	// Len returns the number of validation errors.
 	Len() int
 }
 
@@ -44,9 +49,8 @@ type validationError struct {
 	ErrorBag_ string //nolint:revive
 }
 
-// NewValidationError creates a new validation error.
-//
-// opts can be nil.
+// NewValidationError creates a validation error for a specific field with a message.
+// The error is associated with the default error bag.
 func NewValidationError(field string, message string) *validationError { //nolint:revive
 	return &validationError{
 		Field_:    field,

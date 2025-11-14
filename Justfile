@@ -1,13 +1,23 @@
+export CPU_COUNT := `nproc --all`
+
 setup:
     lefthook install -f
 
 mod:
-    go mod download
     go mod tidy
+    go mod download
+
+gen:
+    go generate ./...
+
+lint:
+    modernize ./...
+    golangci-lint run ./...
 
 lint-fix:
-  typos -w
-  golangci-lint run --fix ./...
+    modernize --fix ./...
+    golangci-lint run --fix ./...
+    nix fmt
 
 test-all:
-  go test -race -count=1 -parallel=4 ./...
+    go test -race -count=1 -parallel={{CPU_COUNT}} ./...

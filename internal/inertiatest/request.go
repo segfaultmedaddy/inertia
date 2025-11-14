@@ -1,4 +1,3 @@
-//go:generate mockgen -destination ssr_mock.go -package inertiatest go.inout.gg/inertia SsrClient
 package inertiatest
 
 import (
@@ -7,7 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	"go.inout.gg/inertia/internal/inertiaheader"
+	"go.segfaultmedaddy.com/inertia/internal/inertiaheader"
 )
 
 type RequestConfig struct {
@@ -19,7 +18,7 @@ type RequestConfig struct {
 	Inertia          bool
 }
 
-// NewEmptyRequest creates a new request with an empty body.
+// NewRequest creates a new request with an empty body.
 func NewRequest(
 	method string,
 	target string,

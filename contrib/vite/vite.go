@@ -1,7 +1,4 @@
-// Package inertiavite provides a minimal integration for Vite.
-// It adds support for Vite Client and Vite React Refresh in development mode.
-// It also provides a support for bundling Vite resources declared
-// in the Vite manifest file.
+// Package vite provides Vite integration for Inertia.js applications.
 package vite
 
 import (
@@ -10,6 +7,7 @@ import (
 	"html/template"
 	"io/fs"
 
+	"go.inout.gg/foundations/debug"
 	"go.inout.gg/foundations/must"
 )
 
@@ -24,16 +22,20 @@ type Config struct {
 func (c *Config) defaults() {
 	c.ViteAddress = cmp.Or(c.ViteAddress, DefaultViteAddress)
 	c.TemplateName = cmp.Or(c.TemplateName, "inertia")
+
+	debug.Assert(c.ViteAddress != "", "vite address must be set")
+	debug.Assert(c.TemplateName != "", "template name must be set")
 }
 
-// NewTemplate creates a new template from a string.
+// NewTemplate creates an html/template with Vite support from a template string.
 //
-// The resulting template will have built-in support for Vite.
-// To include Vite React Refresh, use {{template "viteReactRefresh"}}
-// and Vite client, use {{template "viteClient"}}.
-// To include a Vite resource, use {{viteResource "path/to/resource.js"}}.
-// When running with -tags=production, "viteClient" and "viteReactRefresh"
-// templates are blank.
+// Available template functions and sub-templates:
+//   - {{viteResource "path/to/file.js"}}: Include an asset (dev: proxied URL, prod: manifest-resolved)
+//   - {{template "viteClient"}}: Vite development client (dev only, blank in production)
+//   - {{template "viteReactRefresh"}}: React Fast Refresh support (dev only, blank in production)
+//
+// In development mode, assets are loaded from the Vite dev server at ViteAddress.
+// In production mode (build tag: -tags=production), assets are resolved from the manifest.
 func NewTemplate(content string, config *Config) (*template.Template, error) {
 	if config == nil {
 		//nolint:exhaustruct
@@ -55,8 +57,8 @@ func Must(content string, c *Config) *template.Template {
 	return must.Must(NewTemplate(content, c))
 }
 
-// FromFS creates a new template from a file system.
-// See New for more information.
+// FromFS creates an html/template with Vite support by loading templates from a file system.
+// See NewTemplate for available template functions and behavior.
 func FromFS(fsys fs.FS, path string, cfg *Config) (*template.Template, error) {
 	if cfg == nil {
 		//nolint:exhaustruct

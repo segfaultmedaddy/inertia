@@ -13,8 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"go.inout.gg/inertia/internal/inertiaheader"
-	"go.inout.gg/inertia/internal/inertiatest"
+	"go.segfaultmedaddy.com/inertia/internal/inertiaheader"
+	"go.segfaultmedaddy.com/inertia/internal/inertiassr"
+	"go.segfaultmedaddy.com/inertia/internal/inertiatest"
 )
 
 //nolint:gochecknoglobals
@@ -170,13 +171,13 @@ func TestRenderer_Render(t *testing.T) {
 		ctrl.Finish()
 	})
 
-	mockSsrClient := NewMockSsrClient(ctrl)
-	mockSsrClient.EXPECT().Render(gomock.Any(), gomock.Any()).Return(&SsrTemplateData{
+	mockSsrClient := inertiassr.NewMockSsrClient(ctrl)
+	mockSsrClient.EXPECT().Render(gomock.Any(), gomock.Any()).Return(&inertiassr.SsrTemplateData{
 		Head: "<title>SSR Title</title>",
 		Body: "<div>SSR Content</div>",
 	}, nil).AnyTimes()
 
-	errorMockSsrClient := NewMockSsrClient(ctrl)
+	errorMockSsrClient := inertiassr.NewMockSsrClient(ctrl)
 	errorMockSsrClient.EXPECT().Render(gomock.Any(), gomock.Any()).Return(nil, errors.New("SSR error")).AnyTimes()
 
 	// Define a validation function type
@@ -207,7 +208,7 @@ func TestRenderer_Render(t *testing.T) {
 			options:            []Option{},
 			expectedStatusCode: http.StatusOK,
 			expectedHeaders: map[string]string{
-				inertiaheader.HeaderContentType: contentTypeHTML,
+				inertiaheader.HeaderContentType: inertiaheader.ContentTypeHTML,
 			},
 			expectJSON:  false,
 			expectError: false,
@@ -233,7 +234,7 @@ func TestRenderer_Render(t *testing.T) {
 			options:            []Option{},
 			expectedStatusCode: http.StatusOK,
 			expectedHeaders: map[string]string{
-				inertiaheader.HeaderContentType: contentTypeJSON,
+				inertiaheader.HeaderContentType: inertiaheader.ContentTypeJSON,
 				inertiaheader.HeaderXInertia:    "true",
 			},
 			expectJSON:  true,
@@ -242,6 +243,7 @@ func TestRenderer_Render(t *testing.T) {
 				t.Helper()
 
 				var page map[string]any
+
 				err := json.Unmarshal(body, &page)
 				require.NoError(t, err, "failed to parse JSON response")
 
@@ -261,7 +263,7 @@ func TestRenderer_Render(t *testing.T) {
 			options:            []Option{},
 			expectedStatusCode: http.StatusOK,
 			expectedHeaders: map[string]string{
-				inertiaheader.HeaderContentType: contentTypeHTML,
+				inertiaheader.HeaderContentType: inertiaheader.ContentTypeHTML,
 			},
 			expectJSON:  false,
 			expectError: false,
@@ -336,6 +338,7 @@ func TestRenderer_Render(t *testing.T) {
 				t.Helper()
 
 				var page map[string]any
+
 				err := json.Unmarshal(body, &page)
 				require.NoError(t, err, "Failed to parse response JSON")
 
@@ -371,6 +374,7 @@ func TestRenderer_Render(t *testing.T) {
 				t.Helper()
 
 				var page map[string]any
+
 				err := json.Unmarshal(body, &page)
 				require.NoError(t, err, "Failed to parse response JSON")
 
@@ -407,7 +411,7 @@ func TestRenderer_Render(t *testing.T) {
 			},
 			expectedStatusCode: http.StatusOK,
 			expectedHeaders: map[string]string{
-				inertiaheader.HeaderContentType: contentTypeJSON,
+				inertiaheader.HeaderContentType: inertiaheader.ContentTypeJSON,
 				inertiaheader.HeaderXInertia:    "true",
 			},
 			expectJSON:  true,
@@ -416,6 +420,7 @@ func TestRenderer_Render(t *testing.T) {
 				t.Helper()
 
 				var page map[string]any
+
 				err := json.Unmarshal(body, &page)
 				require.NoError(t, err, "failed to parse JSON response")
 
@@ -455,6 +460,7 @@ func TestRenderer_Render(t *testing.T) {
 				t.Helper()
 
 				var page map[string]any
+
 				err := json.Unmarshal(body, &page)
 				require.NoError(t, err, "failed to parse JSON response")
 
@@ -496,6 +502,7 @@ func TestRenderer_Render(t *testing.T) {
 				t.Helper()
 
 				var page map[string]any
+
 				err := json.Unmarshal(body, &page)
 				require.NoError(t, err, "Failed to parse response JSON")
 
@@ -537,6 +544,7 @@ func TestRenderer_Render(t *testing.T) {
 				t.Helper()
 
 				var page map[string]any
+
 				err := json.Unmarshal(body, &page)
 				require.NoError(t, err, "Failed to parse response JSON")
 
@@ -583,6 +591,7 @@ func TestRenderer_Render(t *testing.T) {
 				// Just check that the response is valid JSON - the blacklisted prop
 				// should be excluded from merge
 				var responseObj map[string]any
+
 				err := json.Unmarshal(body, &responseObj)
 				require.NoError(t, err, "Failed to parse response JSON")
 
@@ -606,6 +615,7 @@ func TestRenderer_Render(t *testing.T) {
 				t.Helper()
 
 				var page map[string]any
+
 				err := json.Unmarshal(body, &page)
 				require.NoError(t, err, "Failed to parse response JSON")
 
@@ -630,6 +640,7 @@ func TestRenderer_Render(t *testing.T) {
 				t.Helper()
 
 				var page map[string]any
+
 				err := json.Unmarshal(body, &page)
 				require.NoError(t, err, "Failed to parse response JSON")
 

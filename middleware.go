@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"slices"
 
-	"go.inout.gg/foundations/http/httpmiddleware"
+	"go.inout.gg/foundations/debug"
 	"go.inout.gg/foundations/must"
 
-	"go.inout.gg/inertia/internal/inertiaheader"
+	"go.segfaultmedaddy.com/inertia/internal/inertiaheader"
 )
 
 type ctxKey struct{}
@@ -22,32 +22,52 @@ var kCtxKey = ctxKey{}
 //nolint:gochecknoglobals
 var seeOtherMethods = []string{http.MethodPatch, http.MethodPut, http.MethodDelete}
 
+//nolint:gochecknoglobals
+var DefaultEmptyResponseHandler = func(w http.ResponseWriter, _ *http.Request) {
+	http.Error(w, "Empty response", http.StatusNoContent)
+}
+
+//nolint:gochecknoglobals
+var DefaultVersionMismatchHandler = func(w http.ResponseWriter, r *http.Request) {
+	Location(w, r, r.RequestURI)
+}
+
+// MiddlewareConfig configures the behavior of the Inertia.js middleware.
 type MiddlewareConfig struct {
-	// EmptyResponseHandler is a function that is called when the response is empty.
+	// EmptyResponseHandler is called when a handler produces no response body.
+	//
+	// If nil, defaults to returning HTTP 204 No Content with an error message.
 	EmptyResponseHandler http.HandlerFunc
 
-	// VersionMismatchHandler is a function that is called when the version mismatch occurs.
+	// VersionMismatchHandler is called when the client's asset version doesn't match the server's.
+	//
+	// If nil, defaults to redirecting the client to the current URL to reload the page with fresh assets.
 	VersionMismatchHandler http.HandlerFunc
 }
 
 func (m *MiddlewareConfig) defaults() {
 	if m.EmptyResponseHandler == nil {
-		m.EmptyResponseHandler = func(w http.ResponseWriter, _ *http.Request) {
-			http.Error(w, "Empty response", http.StatusNoContent)
-		}
+		m.EmptyResponseHandler = DefaultEmptyResponseHandler
 	}
 
 	if m.VersionMismatchHandler == nil {
-		m.VersionMismatchHandler = func(w http.ResponseWriter, r *http.Request) {
-			Location(w, r, r.RequestURI)
-		}
+		m.VersionMismatchHandler = DefaultVersionMismatchHandler
 	}
+
+	debug.Assert(m.EmptyResponseHandler != nil, "EmptyResponseHandler must be set")
+	debug.Assert(m.VersionMismatchHandler != nil, "VersionMismatchHandler must be set")
 }
 
-// Middleware provides the HTTP handling layer for Inertia.js server-side integration.
-func Middleware(renderer *Renderer, opts ...func(*MiddlewareConfig)) httpmiddleware.MiddlewareFunc {
-	//nolint:exhaustruct
-	config := MiddlewareConfig{}
+// NewMiddleware creates an HTTP middleware that enables Inertia.js protocol handling.
+// It intercepts requests to determine if they are Inertia requests, handles version validation,
+// and manages response formatting (JSON for subsequent Inertia requests, HTML otherwise).
+//
+// The middleware automatically handles HTTP 302 redirects by converting them to 303 for PUT/PATCH/DELETE
+// requests as per the Inertia.js specification.
+//
+// Once the middleware is set up, Render can be used to create Inertia responses.
+func NewMiddleware(renderer *Renderer, opts ...func(*MiddlewareConfig)) func(http.Handler) http.Handler {
+	var config MiddlewareConfig
 	for _, opt := range opts {
 		opt(&config)
 	}
@@ -66,9 +86,11 @@ func Middleware(renderer *Renderer, opts ...func(*MiddlewareConfig)) httpmiddlew
 				return
 			}
 
-			externalVersion := r.Header.Get(inertiaheader.HeaderXInertiaVersion)
-			if externalVersion != renderer.Version() {
-				Location(w, r, r.RequestURI)
+			clientVersion := r.Header.Get(inertiaheader.HeaderXInertiaVersion)
+
+			serverVersion := renderer.Version()
+			if clientVersion != serverVersion {
+				config.VersionMismatchHandler(w, r)
 				return
 			}
 
@@ -90,20 +112,34 @@ func Middleware(renderer *Renderer, opts ...func(*MiddlewareConfig)) httpmiddlew
 	}
 }
 
-// RenderContext represents an Inertia.js page context.
+// RenderContext contains all configuration and data for rendering an Inertia.js page response.
+// It includes props, validation errors, history management options, and performance settings.
 type RenderContext struct {
-	T                 any // T is an optional custom data that can be passed to the template.
-	Props             []Prop
-	ErrorBag          string
+	// T is custom data passed to the HTML template via html/template.
+	T any
+
+	// Props are the properties sent to the page component.
+	Props []Prop
+
+	// ErrorBag specifies the validation error bag name for scoped error handling.
+	ErrorBag string
+
+	// ValidationErrorer contains validation errors to be sent to the client.
 	ValidationErrorer []ValidationErrorer
-	EncryptHistory    bool
-	ClearHistory      bool
-	Concurrency       int
+
+	// EncryptHistory instructs the client to encrypt the history state for this page.
+	EncryptHistory bool
+
+	// ClearHistory instructs the client to clear the history stack.
+	ClearHistory bool
+
+	// Concurrency sets the maximum number of concurrent prop resolutions for this page.
+	// If 0, uses the renderer's default. Negative values mean sequential resolution.
+	Concurrency int
 }
 
-// NewRenderContext creates a new RenderContext with the provided options.
-//
-// It returns a copy of the render context.
+// NewRenderContext creates a RenderContext configured with the provided options.
+// Options are applied in order and can be combined to build up the desired page state.
 func NewRenderContext(opts ...Option) RenderContext {
 	var ctx RenderContext
 	for _, opt := range opts {
@@ -113,7 +149,8 @@ func NewRenderContext(opts ...Option) RenderContext {
 	return ctx
 }
 
-// AddValidationErrorer adds a validation error to the context.
+// AddValidationErrorer appends validation errors to the context.
+// Multiple calls accumulate errors into a single error bag.
 func (ctx *RenderContext) AddValidationErrorer(err ValidationErrorer) {
 	if ctx.ValidationErrorer == nil {
 		ctx.ValidationErrorer = make([]ValidationErrorer, 0, 1)
@@ -122,10 +159,10 @@ func (ctx *RenderContext) AddValidationErrorer(err ValidationErrorer) {
 	ctx.ValidationErrorer = append(ctx.ValidationErrorer, err)
 }
 
-// Option configures rendering context.
+// Option is a function that configures a RenderContext.
 type Option func(*RenderContext)
 
-// WithClearHistory sets the history clear.
+// WithClearHistory instructs the client to clear its history stack when rendering this page.
 func WithClearHistory() Option {
 	return func(opt *RenderContext) { opt.ClearHistory = true }
 }
@@ -135,9 +172,8 @@ func WithEncryptHistory() Option {
 	return func(opt *RenderContext) { opt.EncryptHistory = true }
 }
 
-// WithProps sets the props for the page.
-//
-// Calling this function multiple times will append the props.
+// WithProps adds properties to the page component.
+// Multiple calls append additional props to the existing set.
 func WithProps(props Proper) Option {
 	return func(renderCtx *RenderContext) {
 		if props == nil {
@@ -152,9 +188,10 @@ func WithProps(props Proper) Option {
 	}
 }
 
-// WithValidationErrors sets the validation errors for the page.
+// WithValidationErrors adds validation errors to be displayed on the page.
+// Multiple calls append errors to the same or different error bags.
 //
-// Calling this function multiple times will append the errors.
+// The errorBag parameter allows scoping errors to specific forms on the same page.
 func WithValidationErrors(errorers ValidationErrorer, errorBag string) Option {
 	return func(renderCtx *RenderContext) {
 		if errorers == nil {
@@ -166,20 +203,22 @@ func WithValidationErrors(errorers ValidationErrorer, errorBag string) Option {
 	}
 }
 
-// WithConcurrency sets the concurrency level for a given page props resolution.
+// WithConcurrency sets the maximum number of props that can be resolved concurrently for this page.
+// This only affects props marked as concurrent.
 //
-// Calling this function multiple times will override the previous value.
-//
-// If the concurrency level is set to 0, the default concurrency level will be used.
-// Otherwise, if the concurrency level is negative, it will be set to unlimited.
+// A value of 0 uses the renderer's default concurrency level.
+// Negative values allow unlimited concurrent resolution.
 func WithConcurrency(concurrency int) Option {
 	return func(renderCtx *RenderContext) {
 		renderCtx.Concurrency = concurrency
 	}
 }
 
-// Render sends a page component using Inertia.js protocol, allowing server-side rendering
-// of components that interact seamlessly with the Inertia.js client.
+// Render sends an Inertia.js page response with the specified component and context.
+// It automatically detects whether to send JSON (for Inertia requests) or HTML (for full page loads).
+//
+// This function requires the Inertia middleware to be installed in the request chain.
+// Returns an error if the middleware is not found or if rendering fails.
 func Render(w http.ResponseWriter, r *http.Request, componentName string, rCtx RenderContext) error {
 	render, ok := r.Context().Value(kCtxKey).(*Renderer)
 	if !ok {

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"go.inout.gg/inertia/internal/inertiatest"
+	"go.segfaultmedaddy.com/inertia/internal/inertiatest"
 )
 
 //nolint:gochecknoglobals
@@ -22,7 +22,7 @@ func newMiddleware(h http.Handler, renderer *Renderer) http.Handler {
 	}
 
 	mux := http.NewServeMux()
-	middleware := Middleware(renderer)(mux)
+	middleware := NewMiddleware(renderer)(mux)
 
 	mux.HandleFunc("/inertia", h.ServeHTTP)
 

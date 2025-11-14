@@ -1,70 +1,64 @@
-// inertiaframe implements an opinionated framework around Go's HTTP and Inertia
-// library, abstracting out protocol-level details and providing a simple
-// message-based API.
+// Package inertiaframe provides a high-level, message-oriented API for building Inertia.js applications.
+//
+// It abstracts Inertia.js protocol details, providing automatic request parsing, validation,
+// session management, and response handling. Build type-safe endpoints with minimal boilerplate.
 package inertiaframe
 
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"mime"
 	"net/http"
-	"reflect"
-	"strings"
 
+	"github.com/go-json-experiment/json"
 	"github.com/go-playground/form/v4"
-	"github.com/go-playground/locales/en"
-	ut "github.com/go-playground/universal-translator"
-	"github.com/go-playground/validator/v10"
-	ven "github.com/go-playground/validator/v10/translations/en"
 	"go.inout.gg/foundations/debug"
-	"go.inout.gg/foundations/http/httperror"
+	"go.inout.gg/foundations/http/httphandler"
 	"go.inout.gg/foundations/http/httpmiddleware"
 	"go.inout.gg/foundations/must"
 
-	"go.inout.gg/inertia"
-	"go.inout.gg/inertia/contrib/inertiavalidationerrors"
-	"go.inout.gg/inertia/internal/inertiaheader"
-	"go.inout.gg/inertia/internal/inertiaredirect"
+	"go.segfaultmedaddy.com/inertia"
+	"go.segfaultmedaddy.com/inertia/internal/inertiaheader"
+	"go.segfaultmedaddy.com/inertia/internal/inertiaredirect"
 )
 
 var d = debug.Debuglog("inertiaframe") //nolint:gochecknoglobals
 
-var (
-	DefaultValidator   = validator.New(validator.WithRequiredStructEnabled()) //nolint:gochecknoglobals
-	DefaultFormDecoder = form.NewDecoder()                                    //nolint:gochecknoglobals
+var DefaultFormDecoder = form.NewDecoder() //nolint:gochecknoglobals
+
+var ErrEmptyResponse = errors.New("inertiaframe: empty response")
+
+type (
+	Middleware     = httpmiddleware.Middleware
+	MiddlewareFunc = httpmiddleware.MiddlewareFunc
+	Handler        = httphandler.Handler
+	HandlerFunc    = httphandler.HandlerFunc
 )
 
 var (
 	_ RawResponseWriter = (*redirectMessage)(nil)
 	_ RawResponseWriter = (*redirectBackMessage)(nil)
 	_ RawResponseWriter = (*externalRedirectMessage)(nil)
+	_ Response          = (*resp)(nil)
 )
 
 type kCtx struct{}
 
 var kCtxKey = kCtx{} //nolint:gochecknoglobals
 
-// WithProps sets the props on the request context and returns
-// the updated request.
+// WithProps attaches shared props to the request context for later merging with response props.
+// Useful in middleware to provide global data (e.g., auth user, flash messages) to all pages.
 //
-// WithProps can be used to gather props in multiple places, e.g., in middleware.
-//
-// Any overlapping props between the shared context and the response props
-// will be replaced with the response props.
-//
-// Prefer to use the response props directly instead of using this function,
-// and opt in only when necessary.
+// Response props take precedence over shared props when keys overlap.
+// Prefer setting props directly in responses when possible; use this for cross-cutting concerns.
 func WithProps(r *http.Request, props inertia.Proper) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), kCtxKey, props))
 }
 
-// RedirectBack redirects the user back to the previous page.
-//
-// The previous page is determined from the Referer header and
-// falls back to the session if the header is not present.
+// RedirectBack redirects to the previous page using the Referer header.
+// Falls back to the session-stored path if the header is missing, or "/" if no session.
 func RedirectBack(w http.ResponseWriter, r *http.Request) {
 	referer := r.Header.Get(inertiaheader.HeaderReferer)
 	if referer == "" {
@@ -83,9 +77,8 @@ func RedirectBack(w http.ResponseWriter, r *http.Request) {
 	inertiaredirect.Redirect(w, r, referer)
 }
 
-// DefaultValidationErrorHandler is a default error handler for validation errors.
-//
-// It saves flash messages and redirects back to the previous page.
+// DefaultValidationErrorHandler handles validation errors by storing them in the session
+// and redirecting back to the previous page where they can be displayed.
 func DefaultValidationErrorHandler(w http.ResponseWriter, r *http.Request, errorer inertia.ValidationErrorer) {
 	errorBag := inertia.ErrorBagFromRequest(r)
 	sess := must.Must(sessionFromRequest(r))
@@ -99,7 +92,7 @@ func DefaultValidationErrorHandler(w http.ResponseWriter, r *http.Request, error
 }
 
 //nolint:gochecknoglobals
-var DefaultErrorHandler httperror.ErrorHandler = httperror.ErrorHandlerFunc(
+var DefaultErrorHandler httphandler.ErrorHandler = httphandler.ErrorHandlerFunc(
 	func(w http.ResponseWriter, r *http.Request, err error) {
 		var errorer inertia.ValidationErrorer
 		if errors.As(err, &errorer) {
@@ -107,13 +100,7 @@ var DefaultErrorHandler httperror.ErrorHandler = httperror.ErrorHandlerFunc(
 			return
 		}
 
-		errorer, ok := inertiavalidationerrors.FromValidationErrors(err, defaultTranslator)
-		if ok {
-			DefaultValidationErrorHandler(w, r, errorer)
-			return
-		}
-
-		httperror.DefaultErrorHandler(w, r, err)
+		httphandler.DefaultErrorHandler(w, r, err)
 	},
 )
 
@@ -123,272 +110,266 @@ const (
 	mediaTypeMultipart = "multipart/form-data"
 )
 
-var (
-	defaultLocale            = en.New()              //nolint:gochecknoglobals
-	defaultTranslationBundle = ut.New(defaultLocale) //nolint:gochecknoglobals
-
-	//nolint:gochecknoglobals
-	defaultTranslator, _ = defaultTranslationBundle.GetTranslator(
-		defaultLocale.Locale(),
-	)
-)
-
-//nolint:gochecknoinits
-func init() {
-	must.Must1(ven.RegisterDefaultTranslations(DefaultValidator, defaultTranslator))
-
-	DefaultValidator.RegisterTagNameFunc(func(fld reflect.StructField) string {
-		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
-		if name == "-" || name == "" {
-			return ""
-		}
-
-		return name
-	})
-}
-
-// DefaultTranslator returns the default translator that always uses
-// the default locale - English (en).
-func DefaultTranslator(_ context.Context) ut.Translator {
-	t, _ := defaultTranslationBundle.GetTranslator(defaultLocale.Locale())
-	return t
-}
-
-// Request is a request sent by a client.
+// Request represents a parsed and validated client request.
 type Request[M any] struct {
-	// Message is a decoded message sent by a client.
-	//
-	// Message can implement RawRequestExtractor to intercept request data extraction.
-	Message *M
+	// Message is the decoded request payload (from JSON or form data).
+	// If M implements RawRequestExtractor, custom extraction logic is used.
+	Message M
 }
 
-// Response is a response sent by a server to a client.
-//
-// Use NewResponse to create a new response.
-type Response struct {
-	m              Message
-	clearHistory   bool
-	encryptHistory bool
-	concurrency    int
+// newRequest creates a new request.
+func newRequest[M any](m M) *Request[M] {
+	return &Request[M]{Message: m}
 }
 
-// ResponseConfig is a configuration for inertia response.
-type ResponseConfig struct {
-	// ClearHistory determines whether the history should be cleared by
-	// the client.
+// ResponseOptions configures Inertia response behavior for a specific page.
+type ResponseOptions struct {
+	// ClearHistory instructs the client to clear its history stack.
 	ClearHistory bool
 
-	// EncryptHistory determines whether the history should be encrypted by
-	// the client.
+	// EncryptHistory instructs the client to encrypt the history state.
 	EncryptHistory bool
 
-	// Concurrency determines the maximum number of concurrent resolutions of lazy
-	// props that can be made during response resolution.
+	// Concurrency sets the maximum concurrent lazy prop resolutions for this response.
 	Concurrency int
 }
 
-// NewResponse creates a new inertia response.
+func (opt *ResponseOptions) defaults() {
+	opt.Concurrency = cmp.Or(opt.Concurrency, inertia.DefaultConcurrency)
+}
+
+// ResponseOption is used to configure inertia response.
+type ResponseOption func(*ResponseOptions)
+
+// Response represents an endpoint's response, instructing the client to render a component or redirect.
 //
-// The msg can be a struct with props tagged with `inertia:"key"`,
-// a set of props, or a struct implementing RawResponseWriter for
-// custom response handling.
-//
-// An optional config can be passed to customize the response behavior.
-// If config is nil, default values will be used.
-func NewResponse(msg Message, config *ResponseConfig) *Response {
-	if config == nil {
-		config = &ResponseConfig{
-			ClearHistory:   false,
-			EncryptHistory: false,
-			Concurrency:    inertia.DefaultConcurrency,
+// If a Response implements RawResponseWriter, it bypasses normal Inertia rendering
+// and writes directly to http.ResponseWriter (useful for downloads, APIs, etc.).
+type Response interface {
+	// Component returns the frontend component name to render.
+	// Must be non-empty unless the response implements RawResponseWriter.
+	Component() string
+
+	// Proper returns the props to send to the component.
+	// Can be nil for redirect responses or when no props are needed.
+	Proper() inertia.Proper
+}
+
+// NewStructResponse creates a Response by parsing inertia struct tags on m.
+// See inertia.ParseStruct for tag documentation.
+// Returns an error if the struct tags are invalid.
+func NewStructResponse(component string, m any, opts ...ResponseOption) (Response, error) {
+	proper, err := inertia.ParseStruct(m)
+	if err != nil {
+		return nil, fmt.Errorf("inertiaframe: failed to parse props: %w", err)
+	}
+
+	var options ResponseOptions
+
+	if len(opts) > 0 {
+		for _, opt := range opts {
+			opt(&options)
 		}
 	}
 
-	resp := &Response{
-		m:              msg,
-		clearHistory:   config.ClearHistory,
-		encryptHistory: config.EncryptHistory,
-		concurrency:    config.Concurrency,
+	options.defaults()
+
+	return &resp{proper, component, options}, nil
+}
+
+// NewResponse creates a Response with the specified component and props.
+// Optional ResponseOption functions can customize history and concurrency behavior.
+func NewResponse(component string, proper inertia.Proper, opts ...ResponseOption) Response {
+	var options ResponseOptions
+
+	if len(opts) > 0 {
+		for _, opt := range opts {
+			opt(&options)
+		}
 	}
 
-	return resp
+	options.defaults()
+
+	return &resp{proper, component, options}
+}
+
+// resp represents a response to an Inertia request.
+//
+// It is a helper that implements the Response interface and is used
+// to create a response from a struct or an inertia.Proper.
+type resp struct {
+	proper    inertia.Proper
+	component string
+	opts      ResponseOptions
+}
+
+func (r *resp) Component() string        { return r.component }
+func (r *resp) Proper() inertia.Proper   { return r.proper }
+func (r *resp) Options() ResponseOptions { return r.opts }
+
+type rawResp struct{ h Handler }
+
+// NewRawResponse creates a Response that bypasses Inertia rendering.
+// The provided handler has full control over the HTTP response.
+// Useful for file downloads, API endpoints, or custom authentication flows.
+func NewRawResponse(h Handler) Response {
+	return &rawResp{h}
+}
+
+func (*rawResp) Component() string      { return "" }
+func (*rawResp) Proper() inertia.Proper { return nil }
+
+func (*rawResp) Options() ResponseOptions {
+	//nolint:exhaustruct
+	return ResponseOptions{}
+}
+
+func (rr *rawResp) Write(w http.ResponseWriter, r *http.Request) error {
+	//nolint:wrapcheck
+	return rr.h.ServeHTTP(w, r)
 }
 
 type externalRedirectMessage struct{ url string }
 
-func (m *externalRedirectMessage) Component() string { return "" }
+// NewExternalRedirectResponse creates a Response that redirects to an external URL
+// (outside the Inertia app). Uses the Location protocol for proper client handling.
+func NewExternalRedirectResponse(url string) Response {
+	return &externalRedirectMessage{url: url}
+}
+
+func (m *externalRedirectMessage) Proper() inertia.Proper { return nil }
+func (m *externalRedirectMessage) Component() string      { return "" }
 
 func (m *externalRedirectMessage) Write(w http.ResponseWriter, r *http.Request) error {
 	inertia.Location(w, r, m.url)
 	return nil
 }
 
-// NewExternalRedirectResponse creates a new response that redirects the client to an
-// external URL.
-//
-// External URL is any URL that is not powered by Inertia.js.
-func NewExternalRedirectResponse(url string) *Response {
-	return &Response{
-		m:              &externalRedirectMessage{url: url},
-		clearHistory:   false,
-		encryptHistory: false,
-		concurrency:    inertia.DefaultConcurrency,
-	}
-}
-
 type redirectBackMessage struct{}
 
-func (m *redirectBackMessage) Component() string { return "" }
+// NewRedirectBackResponse creates a Response that redirects to the previous page.
+// Uses the Referer header or session-stored path.
+func NewRedirectBackResponse() Response {
+	return &redirectBackMessage{}
+}
+
+func (m *redirectBackMessage) Proper() inertia.Proper { return nil }
+func (m *redirectBackMessage) Component() string      { return "" }
 
 func (m *redirectBackMessage) Write(w http.ResponseWriter, r *http.Request) error {
 	RedirectBack(w, r)
 	return nil
 }
 
-// NewRedirectBackResponse creates a new response that redirects the client
-// back to the previous page.
-func NewRedirectBackResponse() *Response {
-	return &Response{
-		m:              &redirectBackMessage{},
-		clearHistory:   false,
-		encryptHistory: false,
-		concurrency:    inertia.DefaultConcurrency,
-	}
-}
-
 type redirectMessage struct{ url string }
 
-func (m *redirectMessage) Component() string { return "" }
+// NewRedirectResponse creates a Response that redirects to the specified URL within the Inertia app.
+func NewRedirectResponse(url string) Response {
+	return &redirectMessage{url: url}
+}
+
+func (m *redirectMessage) Proper() inertia.Proper { return nil }
+func (m *redirectMessage) Component() string      { return "" }
 
 func (m *redirectMessage) Write(w http.ResponseWriter, r *http.Request) error {
-	RedirectBack(w, r)
+	inertiaredirect.Redirect(w, r, m.url)
 	return nil
 }
 
-// NewRedirectResponse creates a new response that redirects the client to the
-// specified URL.
-func NewRedirectResponse(url string) *Response {
-	return &Response{
-		m:              &redirectMessage{url: url},
-		clearHistory:   false,
-		encryptHistory: false,
-		concurrency:    inertia.DefaultConcurrency,
-	}
-}
-
-// Message is used to send a message to the client. It can be
-// used to guide the client to render a component or redirect to a
-// specific URL.
-//
-// If the Message implements a RawResponseWriter, the default
-// behavior is prevented and the writer is used instead to
-// write the response data.
-//
-// The Component() method must return a non-empty string.
-type Message interface {
-	// Component returns the component name to be rendered.
-	//
-	// Executor panics if Component returns an empty string,
-	// unless the message implements RawResponseWriter.
-	//
-	// If the message is implementing RawResponseWriter, the default
-	// behavior is prevented and the writer is used instead to
-	// write the response data.
-	Component() string
-}
-
-// RawRequestExtractor allows to extract data from the raw http.Request.
-// If a request message implements RawRequestExtractor, the default
-// behavior is prevented and the extractor is used instead to
-// extract the request data.
+// RawRequestExtractor allows custom request parsing logic.
+// When a request message implements this interface, it bypasses the default
+// JSON/form decoder and calls Extract instead.
 type RawRequestExtractor interface {
-	// Extract extracts data from the raw http.Request.
+	// Extract parses and populates fields from the raw HTTP request.
 	Extract(*http.Request) error
 }
 
-// RawResponseWriter allows to write data to the http.ResponseWriter.
-// If a response message implements RawResponseWriter, the default
-// behavior is prevented and the writer is used instead to
-// write the response data.
+// RawResponseWriter allows custom response writing logic.
+// When a Response implements this interface, it bypasses normal Inertia rendering
+// and calls Write directly. Useful for non-Inertia responses (downloads, APIs, etc.).
 type RawResponseWriter interface {
 	Write(http.ResponseWriter, *http.Request) error
 }
 
-// Meta is the metadata of an endpoint.
+// ResponseOptioner is an optional interface for Responses that need custom options
+// (history management, concurrency). If implemented, Options() is called to configure the response.
+type ResponseOptioner interface {
+	Options() ResponseOptions
+}
+
+// Meta contains endpoint routing metadata used during mounting.
 type Meta struct {
-	// HTTP method of the endpoint.
+	// Method is the HTTP method (GET, POST, PUT, DELETE, etc.).
 	Method string
 
-	// HTTP path of the endpoint. It supports the same path pattern as
-	// the http.ServeMux.
+	// Path is the URL pattern, following http.ServeMux syntax (e.g., "/users/{id}").
 	Path string
 }
 
-type Endpoint[R any] interface {
-	// Execute executes the endpoint for the given request.
-	//
-	// If the returned error can automatically be converted to an Inertia
-	// error, it will be converted and passed down to the client.
-	Execute(context.Context, *Request[R]) (*Response, error)
-
-	// Meta returns the metadata of the endpoint. It is used to configure
-	// the endpoint's behavior when mounted on a given http.ServeMux.
-	Meta() *Meta
+// Validator validates parsed request messages before execution.
+type Validator[M any] interface {
+	// Validate checks the request message for errors.
+	// If validation fails, return a ValidationErrorer to send errors to the client,
+	// or any other error to trigger error handling.
+	Validate(M) error
 }
 
-// Mux is a universal interface for routing HTTP requests.
+// ValidatorFunc is a function that implements the Validator interface.
+type ValidatorFunc[M any] func(M) error
+
+func (f ValidatorFunc[M]) Validate(v M) error { return f(v) }
+
+// Endpoint represents a type-safe, message-oriented HTTP handler.
+type Endpoint[M any] interface {
+	// Execute processes the validated request and returns a Response.
+	// Errors are automatically handled based on type (e.g., ValidationErrorer).
+	Execute(context.Context, *Request[M]) (Response, error)
+
+	// Meta returns routing metadata (HTTP method and path pattern).
+	Meta() Meta
+}
+
+// Mux represents an HTTP router compatible with http.ServeMux.
 type Mux interface {
-	// Handle handles the given HTTP request at the specified path.
-	//
-	// The pattern is a string following the http.ServeMux format:
-	// "<http-method> <path>".
+	// Handle registers a handler for a pattern (e.g., "POST /users/{id}").
 	Handle(pattern string, h http.Handler)
 }
 
-type MountOpts struct {
-	// Middleware is the middleware used to handle requests.
-	// If Middleware is nil, no middleware will be used.
-	Middleware httpmiddleware.Middleware
+// MountOpts configures endpoint mounting behavior.
+type MountOpts[M any] struct {
+	// Validator validates requests before execution. If nil, no validation is performed.
+	Validator Validator[M]
 
-	// Validator is the validator used to validate the request data.
-	// If Validator is nil, the DefaultValidator will be used.
-	Validator *validator.Validate
-
-	// FormDecoder is the decoder used to parse incoming request data
-	// when the request type is application/x-www-form-urlencoded or
-	// multipart/form-data.
-	// If FormDecoder is nil, the DefaultFormDecoder will be used.
+	// FormDecoder parses form-urlencoded and multipart requests.
+	// Defaults to DefaultFormDecoder if nil.
 	FormDecoder *form.Decoder
 
-	// ErrorHandler is the error handler used to handle errors.
-	// If ErrorHandler is nil, the DefaultErrorHandler will be used.
-	ErrorHandler httperror.ErrorHandler
+	// ErrorHandler handles execution errors. Defaults to DefaultErrorHandler if nil.
+	ErrorHandler httphandler.ErrorHandler
+
+	// JSONUnmarshalOptions customizes JSON parsing (e.g., for protobuf).
+	JSONUnmarshalOptions []json.Options
 }
 
-// Mount mounts the executor on the given mux.
+// Mount registers an Endpoint on a Mux, creating an HTTP handler that:
+//   - Automatically parses JSON and form data into the message type M
+//   - Validates requests using the configured Validator
+//   - Executes the endpoint and renders the Response
 //
-// Endpoint must specify the HTTP method and path via Endpoint.Meta().
-// The mounted endpoint automatically handles requests with JSON and form
-// data.
-//
-// The message M is validated using the validator specified in the MountOpts.
-// Validation errors are automatically handled and passed to the client
-// according to Inertia protocol.
-func Mount[M any](mux Mux, e Endpoint[M], opts *MountOpts) {
+// The endpoint's Meta() defines the HTTP method and path pattern.
+func Mount[M any](mux Mux, endpoint Endpoint[M], opts *MountOpts[M]) {
 	if opts == nil {
 		//nolint:exhaustruct
-		opts = &MountOpts{}
+		opts = &MountOpts[M]{}
 	}
 
 	opts.ErrorHandler = cmp.Or(opts.ErrorHandler, DefaultErrorHandler)
-	opts.Validator = cmp.Or(opts.Validator, DefaultValidator)
 	opts.FormDecoder = cmp.Or(opts.FormDecoder, DefaultFormDecoder)
 
-	debug.Assert(e != nil, "Executor must not be nil")
+	debug.Assert(endpoint != nil, "Executor must not be nil")
 	debug.Assert(opts.ErrorHandler != nil, "Executor must specify the error handler")
-	debug.Assert(opts.Validator != nil, "Executor must specify the validator")
 
-	m := e.Meta()
+	m := endpoint.Meta()
 
 	debug.Assert(m.Method != "", "Executor must specify the HTTP method")
 	debug.Assert(m.Path != "", "Executor must specify the HTTP path")
@@ -397,24 +378,29 @@ func Mount[M any](mux Mux, e Endpoint[M], opts *MountOpts) {
 
 	d("Mounting executor on pattern: %s", pattern)
 
-	h := newHandler(e, opts.ErrorHandler, opts.Validator, opts.FormDecoder)
-	if opts.Middleware != nil {
-		h = opts.Middleware.Middleware(h)
-	}
-
-	mux.Handle(pattern, h)
+	mux.Handle(
+		pattern,
+		newHandler(
+			endpoint,
+			opts.ErrorHandler,
+			opts.Validator,
+			opts.FormDecoder,
+			opts.JSONUnmarshalOptions,
+		),
+	)
 }
 
 // newHandler creates a new http.Handler for the given endpoint.
 func newHandler[M any](
 	endpoint Endpoint[M],
-	errorHandler httperror.ErrorHandler,
-	validate *validator.Validate,
+	errorHandler httphandler.ErrorHandler,
+	validator Validator[M],
 	formDecoder *form.Decoder,
+	jsonUnmarshalOptions []json.Options,
 ) http.Handler {
-	handleError := httperror.WithErrorHandler(errorHandler)
+	handleError := httphandler.WithErrorHandler(errorHandler)
 
-	return handleError(httperror.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+	return handleError(httphandler.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
 		var (
 			msg       M
 			renderCtx inertia.RenderContext
@@ -439,7 +425,7 @@ func newHandler[M any](
 				{
 					d("received JSON request")
 
-					if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+					if err := json.UnmarshalRead(r.Body, &msg, jsonUnmarshalOptions...); err != nil {
 						return fmt.Errorf("inertiaframe: failed to decode request: %w", err)
 					}
 				}
@@ -458,15 +444,15 @@ func newHandler[M any](
 			}
 		}
 
-		if err := validate.StructCtx(ctx, &msg); err != nil {
-			d("failed to validate request")
+		if validator != nil {
+			if err := validator.Validate(msg); err != nil {
+				d("failed to validate request")
 
-			return fmt.Errorf("inertiaframe: failed to validate request: %w", err)
+				return fmt.Errorf("inertiaframe: failed to validate request: %w", err)
+			}
 		}
 
-		req := &Request[M]{Message: &msg}
-
-		resp, err := endpoint.Execute(ctx, req)
+		resp, err := endpoint.Execute(ctx, newRequest(msg))
 		if err != nil {
 			return fmt.Errorf("inertiaframe: failed to execute: %w", err)
 		}
@@ -474,10 +460,10 @@ func newHandler[M any](
 		if resp == nil {
 			d("received empty response")
 
-			return errors.New("inertiaframe: empty response")
+			return ErrEmptyResponse
 		}
 
-		if writer, ok := resp.m.(RawResponseWriter); ok {
+		if writer, ok := resp.(RawResponseWriter); ok {
 			if err := writer.Write(w, r); err != nil {
 				return fmt.Errorf("inertiaframe: failed to write response: %w", err)
 			}
@@ -485,30 +471,36 @@ func newHandler[M any](
 			return nil
 		}
 
-		renderCtx.ClearHistory = resp.clearHistory
-		renderCtx.EncryptHistory = resp.encryptHistory
+		if optioner, ok := resp.(ResponseOptioner); ok {
+			opts := optioner.Options()
+
+			renderCtx.ClearHistory = opts.ClearHistory
+			renderCtx.EncryptHistory = opts.EncryptHistory
+			renderCtx.Concurrency = opts.Concurrency
+		}
 
 		var props []inertia.Prop
+
 		if proper, ok := r.Context().Value(kCtxKey).(inertia.Proper); ok {
 			d("has shared props")
 
 			props = proper.Props()
 		}
 
-		extractedProps, err := extractProps(resp.m)
-		if err != nil {
-			return fmt.Errorf("inertiaframe: failed to extract props: %w", err)
-		}
+		proper := resp.Proper()
+		if proper.Len() > 0 {
+			d("response has props")
 
-		if extractedProps.Len() > 0 {
-			d("has response props")
-
-			props = append(props, extractedProps...)
+			props = append(props, proper.Props()...)
 		}
 
 		renderCtx.Props = props
 
-		sess, _ := sessionFromRequest(r)
+		sess, err := sessionFromRequest(r)
+		if err != nil {
+			return fmt.Errorf("inertiaframe: failed to get session: %w", err)
+		}
+
 		errors := sess.ValidationErrors()
 
 		if errors != nil {
@@ -516,33 +508,13 @@ func newHandler[M any](
 			renderCtx.AddValidationErrorer(inertia.ValidationErrors(errors))
 		}
 
-		componentName := resp.m.Component()
-		debug.Assert(componentName != "", "component must not be empty, when using non RawResponseWriter")
+		component := resp.Component()
+		debug.Assert(component != "", "component must not be empty, when using non RawResponseWriter")
 
-		if err := inertia.Render(w, r, componentName, renderCtx); err != nil {
+		if err := inertia.Render(w, r, component, renderCtx); err != nil {
 			return fmt.Errorf("inertiaframe: failed to render: %w", err)
 		}
 
 		return nil
 	}))
-}
-
-// extractProps extracts props from the given message.
-//
-// If the message implements the inertia.Proper interface,
-// it returns the props from the message.
-// Otherwise, it attempts to parse the message as a struct and
-// returns the props from the struct.
-func extractProps(msg any) (inertia.Props, error) {
-	proper, ok := msg.(inertia.Proper)
-	if ok {
-		return proper.Props(), nil
-	}
-
-	props, err := inertia.ParseStruct(msg)
-	if err != nil {
-		return nil, fmt.Errorf("inertiaframe: failed to parse props: %w", err)
-	}
-
-	return props, nil
 }

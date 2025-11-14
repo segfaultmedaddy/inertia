@@ -1,4 +1,4 @@
-package inertia
+package inertiassr
 
 import (
 	"encoding/json"
@@ -9,31 +9,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.segfaultmedaddy.com/inertia/internal/inertiabase"
 )
 
-func TestNewHTTPSsrClient(t *testing.T) {
-	t.Parallel()
-
-	t.Run("creates client with default http client when nil", func(t *testing.T) {
-		t.Parallel()
-
-		client := NewHTTPSsrClient("http://example.com", nil)
-		assert.NotNil(t, client, "client should not be nil")
-	})
-
-	t.Run("creates client with provided http client", func(t *testing.T) {
-		t.Parallel()
-
-		customClient := &http.Client{}
-		client := NewHTTPSsrClient("http://example.com", customClient)
-		assert.NotNil(t, client, "client should not be nil")
-	})
-}
+//nolint:gochecknoglobals
+var defaultClient = http.DefaultClient
 
 func TestSsrRender(t *testing.T) {
 	t.Parallel()
 
-	page := &Page{
+	page := &inertiabase.Page{
 		Component: "Test",
 		Props:     map[string]any{"foo": "bar"},
 	}
@@ -66,7 +52,7 @@ func TestSsrRender(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewHTTPSsrClient(server.URL, nil)
+		client := NewHTTPSsrClient(server.URL, defaultClient)
 		result, err := client.Render(t.Context(), page)
 
 		require.NoError(t, err)
@@ -82,7 +68,7 @@ func TestSsrRender(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewHTTPSsrClient(server.URL, nil)
+		client := NewHTTPSsrClient(server.URL, defaultClient)
 		_, err := client.Render(t.Context(), page)
 		assert.Error(t, err)
 	})
@@ -97,7 +83,7 @@ func TestSsrRender(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewHTTPSsrClient(server.URL, nil)
+		client := NewHTTPSsrClient(server.URL, defaultClient)
 		_, err := client.Render(t.Context(), page)
 		assert.Error(t, err)
 	})
@@ -105,7 +91,7 @@ func TestSsrRender(t *testing.T) {
 	t.Run("handles invalid URL", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPSsrClient("invalid-url", nil)
+		client := NewHTTPSsrClient("invalid-url", defaultClient)
 		_, err := client.Render(t.Context(), page)
 		assert.Error(t, err)
 	})

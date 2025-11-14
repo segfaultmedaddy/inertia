@@ -12,7 +12,7 @@ import (
 
 	"go.inout.gg/foundations/http/httpcookie"
 
-	"go.inout.gg/inertia"
+	"go.segfaultmedaddy.com/inertia"
 )
 
 type sessCtx struct{}
@@ -33,11 +33,9 @@ func init() {
 	gob.Register([]inertia.ValidationError(nil))
 }
 
-// Session is a user's local session for storing informational data for
-// inertiaframe to work correctly.
-//
-// It is primarily used to store information about validation errors
-// and the last visited path.
+// Session stores temporary flash data for the inertiaframe package.
+// It manages validation errors and the last visited path for redirect-back functionality.
+// Session data is stored in a cookie and automatically cleared after being read.
 type session struct {
 	ErrorBag_         string                    //nolint:revive
 	Path_             string                    //nolint:revive
@@ -74,10 +72,8 @@ func sessionFromRequest(r *http.Request) (*session, error) {
 	return sess, nil
 }
 
-// ValidationErrors returns a list of validation errors that occurred
-// during the processing of the request.
-//
-// Once the errors are accessed, they are cleared from the session.
+// ValidationErrors returns validation errors from the previous request.
+// Errors are automatically cleared after being read (flash behavior).
 func (s *session) ValidationErrors() []inertia.ValidationError {
 	ret := s.ValidationErrors_
 	s.ValidationErrors_ = nil
@@ -85,8 +81,8 @@ func (s *session) ValidationErrors() []inertia.ValidationError {
 	return ret
 }
 
-// ErrorBag returns the error bag associated with the request
-// that produced validation errors.
+// ErrorBag returns the error bag name from the previous request that produced errors.
+// Automatically cleared after being read.
 func (s *session) ErrorBag() string {
 	ret := s.ErrorBag_
 	s.ErrorBag_ = ""
@@ -94,18 +90,16 @@ func (s *session) ErrorBag() string {
 	return ret
 }
 
-// Referer returns the last path visited by the user.
-//
-// It is used to redirect the user back to the previously visited page
-// when calling inertiaframe.RedirectBack.
+// Referer returns the last visited path stored in the session.
+// Used by RedirectBack to navigate to the previous page.
 func (s *session) Referer() string { return s.Path_ }
 
-// Clear completely removes the session from the client.
+// Clear deletes the session cookie from the client.
 func (s *session) Clear(w http.ResponseWriter, r *http.Request) {
 	httpcookie.Delete(w, r, SessionCookieName)
 }
 
-// Save saves the session to the client, typically via a cookie.
+// Save persists the session to a cookie sent to the client.
 func (s *session) Save(w http.ResponseWriter) error {
 	buf := bufPool.Get().(*bytes.Buffer) //nolint:forcetypeassert
 

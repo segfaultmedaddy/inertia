@@ -2,12 +2,8 @@ package inertiavalidationerrors
 
 import (
 	"encoding/gob"
-	"errors"
 
-	ut "github.com/go-playground/universal-translator"
-	"github.com/go-playground/validator/v10"
-
-	"go.inout.gg/inertia"
+	"go.segfaultmedaddy.com/inertia"
 )
 
 var (
@@ -20,8 +16,9 @@ func init() {
 	gob.Register(&MapError{})
 }
 
-// MapError is a map of key-value pairs that can be used as validation errors.
-// Key is the field name and value is the error message.
+// MapError is a convenient map-based ValidationErrorer implementation.
+// Keys are field names and values are error messages.
+// Useful for quickly creating validation errors without defining custom types.
 type MapError map[string]string
 
 func (m MapError) ValidationErrors() []inertia.ValidationError {
@@ -36,24 +33,3 @@ func (m MapError) ValidationErrors() []inertia.ValidationError {
 func (m MapError) Error() string    { return "validation errors" }
 func (m MapError) Len() int         { return len(m) }
 func (m MapError) ErrorBag() string { return inertia.DefaultErrorBag }
-
-// FromValidationErrors creates a Map from a validator error.
-//
-// FromValidationErrors supports nested errors implemented via the `Unwrap() error`
-// method. Unwrap method returning multiple errors `Unwrap() []error` is not supported.
-func FromValidationErrors(err error, t ut.Translator) (MapError, bool) {
-	var verr validator.ValidationErrors
-	if errors.As(err, &verr) {
-		m := make(MapError)
-
-		for _, e := range verr {
-			f := e.Field()
-			msg := e.Translate(t)
-			m[f] = msg
-		}
-
-		return m, true
-	}
-
-	return nil, false
-}
