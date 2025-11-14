@@ -79,6 +79,7 @@
               just
               mockgen
               gotools
+              go
               gcc
               gopls
               govulncheck
