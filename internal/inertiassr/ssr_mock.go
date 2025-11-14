@@ -53,6 +53,5 @@ func (m *MockSsrClient) Render(arg0 context.Context, arg1 *inertiabase.Page) (*S
 // Render indicates an expected call of Render.
 func (mr *MockSsrClientMockRecorder) Render(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Render",
-		reflect.TypeOf((*MockSsrClient)(nil).Render), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Render", reflect.TypeOf((*MockSsrClient)(nil).Render), arg0, arg1)
 }
