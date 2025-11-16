@@ -173,6 +173,7 @@ func WithEncryptHistory() Option {
 }
 
 // WithProps adds properties to the page component.
+//
 // Multiple calls append additional props to the existing set.
 func WithProps(props Proper) Option {
 	return func(renderCtx *RenderContext) {

@@ -37,10 +37,10 @@ type Page = inertiabase.Page
 
 // Config configures the Renderer behavior and capabilities.
 type Config struct {
-	// SsrClient enables server-side rendering of Inertia pages.
+	// SSRClient enables server-side rendering of Inertia pages.
 	//
 	// If nil, only client-side rendering is used.
-	SsrClient SsrClient
+	SSRClient SSRClient
 
 	// RootViewAttrs are HTML attributes applied to the root element.
 	RootViewAttrs map[string]string
@@ -75,7 +75,7 @@ func (c *Config) defaults() {
 //
 // Create a Renderer using New or FromFS constructor functions.
 type Renderer struct {
-	ssrClient          SsrClient
+	ssrClient          SSRClient
 	jsonMarshalOptions []json.Options
 	t                  *template.Template
 	rootViewID         string
@@ -104,7 +104,7 @@ func New(t *template.Template, config *Config) *Renderer {
 
 	r := &Renderer{
 		t:                  t,
-		ssrClient:          config.SsrClient,
+		ssrClient:          config.SSRClient,
 		jsonMarshalOptions: config.JSONMarshalOptions,
 		version:            config.Version,
 		rootViewID:         config.RootViewID,
@@ -205,7 +205,7 @@ func (r *Renderer) newPage(req *http.Request, componentName string, renderCtx Re
 	rawProps = append(rawProps, renderCtx.Props...)
 	rawProps = append(rawProps, r.makeValidationErrors(renderCtx.ValidationErrorer, renderCtx.ErrorBag))
 
-	props, err := r.makeProps(req, componentName, rawProps, r.concurrency)
+	props, err := r.makeProps(req, componentName, rawProps, renderCtx.Concurrency)
 	if err != nil {
 		return nil, err
 	}

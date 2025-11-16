@@ -171,19 +171,17 @@ func TestRenderer_Render(t *testing.T) {
 		ctrl.Finish()
 	})
 
-	mockSsrClient := inertiassr.NewMockSsrClient(ctrl)
-	mockSsrClient.EXPECT().Render(gomock.Any(), gomock.Any()).Return(&inertiassr.SsrTemplateData{
+	mockSSRClient := inertiassr.NewMockSSRClient(ctrl)
+	mockSSRClient.EXPECT().Render(gomock.Any(), gomock.Any()).Return(&inertiassr.SSRTemplateData{
 		Head: "<title>SSR Title</title>",
 		Body: "<div>SSR Content</div>",
 	}, nil).AnyTimes()
 
-	errorMockSsrClient := inertiassr.NewMockSsrClient(ctrl)
+	errorMockSsrClient := inertiassr.NewMockSSRClient(ctrl)
 	errorMockSsrClient.EXPECT().Render(gomock.Any(), gomock.Any()).Return(nil, errors.New("SSR error")).AnyTimes()
 
-	// Define a validation function type
 	type responseValidator func(t *testing.T, body []byte)
 
-	// Test cases for the Render method
 	tests := []struct {
 		renderer             *Renderer
 		reqConfig            *inertiatest.RequestConfig
@@ -256,7 +254,7 @@ func TestRenderer_Render(t *testing.T) {
 			renderer: New(basicTpl, &Config{
 				Version:    "1.0.0",
 				RootViewID: "app",
-				SsrClient:  mockSsrClient,
+				SSRClient:  mockSSRClient,
 			}),
 			reqConfig:          &inertiatest.RequestConfig{},
 			componentName:      "TestComponent",
@@ -279,7 +277,7 @@ func TestRenderer_Render(t *testing.T) {
 			name: "ssr with error - returns error",
 			renderer: New(basicTpl, &Config{
 				Version:   "1.0.0",
-				SsrClient: errorMockSsrClient,
+				SSRClient: errorMockSsrClient,
 			}),
 			reqConfig:     &inertiatest.RequestConfig{},
 			componentName: "TestComponent",

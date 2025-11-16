@@ -44,9 +44,9 @@ var (
 	_ Response          = (*resp)(nil)
 )
 
-type kCtx struct{}
+type ctxKey struct{}
 
-var kCtxKey = kCtx{} //nolint:gochecknoglobals
+var kCtxKey = &ctxKey{} //nolint:gochecknoglobals
 
 // WithProps attaches shared props to the request context for later merging with response props.
 // Useful in middleware to provide global data (e.g., auth user, flash messages) to all pages.
@@ -216,7 +216,7 @@ func NewRawResponse(h Handler) Response {
 	return &rawResp{h}
 }
 
-func (*rawResp) Component() string      { return "" }
+func (*rawResp) Component() string      { return "<raw>" }
 func (*rawResp) Proper() inertia.Proper { return nil }
 
 func (*rawResp) Options() ResponseOptions {

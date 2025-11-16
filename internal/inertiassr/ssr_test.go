@@ -29,7 +29,7 @@ func TestSsrRender(t *testing.T) {
 	t.Run("successfully renders page", func(t *testing.T) {
 		t.Parallel()
 
-		expected := &SsrTemplateData{
+		expected := &SSRTemplateData{
 			Head: "<head>Test</head>",
 			Body: "<body>Content</body>",
 		}
