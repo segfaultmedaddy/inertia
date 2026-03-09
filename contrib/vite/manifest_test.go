@@ -1,6 +1,7 @@
 package vite
 
 import (
+	"html/template"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,15 +11,23 @@ import (
 )
 
 func TestParseManifest(t *testing.T) {
-	content, err := os.ReadFile("testdata/manifest.json")
-	require.NoError(t, err, "Failed to read test manifest file")
-
-	manifest, err := ParseManifest(content)
-	require.NoError(t, err, "ParseManifest failed")
+	t.Parallel()
 
 	t.Run("successful parsing", func(t *testing.T) {
+		t.Parallel()
+
+		// arrange
+		content, err := os.ReadFile("testdata/manifest.json")
+		require.NoError(t, err)
+
+		// act
+		manifest, err := ParseManifest(content)
+
+		// assert
+		require.NoError(t, err)
+
 		sharedJS, ok := manifest.raw["_shared-B7PI925R.js"]
-		require.True(t, ok, "Expected manifest to contain '_shared-B7PI925R.js' entry")
+		require.True(t, ok)
 		assert.Equal(t, &ManifestEntry{
 			File: "assets/shared-B7PI925R.js",
 			Name: "shared",
@@ -26,7 +35,7 @@ func TestParseManifest(t *testing.T) {
 		}, sharedJS)
 
 		bar, ok := manifest.raw["views/bar.js"]
-		require.True(t, ok, "Expected manifest to contain 'views/bar.js' entry")
+		require.True(t, ok)
 		assert.Equal(t, &ManifestEntry{
 			File:           "assets/bar-gkvgaI9m.js",
 			Name:           "bar",
@@ -37,7 +46,7 @@ func TestParseManifest(t *testing.T) {
 		}, bar)
 
 		foo, ok := manifest.raw["views/foo.js"]
-		require.True(t, ok, "Expected manifest to contain 'views/foo.js' entry")
+		require.True(t, ok)
 		assert.Equal(t, &ManifestEntry{
 			File:    "assets/foo-BRBmoGS9.js",
 			Name:    "foo",
@@ -49,20 +58,36 @@ func TestParseManifest(t *testing.T) {
 	})
 
 	t.Run("invalid JSON", func(t *testing.T) {
+		t.Parallel()
+
+		// arrange
 		invalidJSON := []byte(`{invalid json}`)
+
+		// act
 		_, err := ParseManifest(invalidJSON)
-		assert.Error(t, err, "Expected error when parsing invalid JSON")
+
+		// assert
+		assert.Error(t, err)
 	})
 }
 
 func TestParseManifestFromFS(t *testing.T) {
+	t.Parallel()
+
 	t.Run("successful parsing", func(t *testing.T) {
+		t.Parallel()
+
+		// arrange
 		dir := os.DirFS("testdata")
+
+		// act
 		manifest, err := ParseManifestFromFS(dir, "manifest.json")
-		require.NoError(t, err, "ParseManifestFromFS failed")
+
+		// assert
+		require.NoError(t, err)
 
 		sharedJS, ok := manifest.raw["_shared-B7PI925R.js"]
-		require.True(t, ok, "Expected manifest to contain '_shared-B7PI925R.js' entry")
+		require.True(t, ok)
 		assert.Equal(t, &ManifestEntry{
 			File: "assets/shared-B7PI925R.js",
 			Name: "shared",
@@ -70,7 +95,7 @@ func TestParseManifestFromFS(t *testing.T) {
 		}, sharedJS)
 
 		foo, ok := manifest.raw["views/foo.js"]
-		require.True(t, ok, "Expected manifest to contain 'views/foo.js' entry")
+		require.True(t, ok)
 		assert.Equal(t, &ManifestEntry{
 			File:    "assets/foo-BRBmoGS9.js",
 			Name:    "foo",
@@ -82,14 +107,73 @@ func TestParseManifestFromFS(t *testing.T) {
 	})
 
 	t.Run("file not found", func(t *testing.T) {
+		t.Parallel()
+
+		// arrange
 		dir := os.DirFS("testdata")
+
+		// act
 		_, err := ParseManifestFromFS(dir, "nonexistent.json")
-		assert.Error(t, err, "Expected error when reading non-existent file")
+
+		// assert
+		assert.Error(t, err)
 	})
 
 	t.Run("invalid file path", func(t *testing.T) {
+		t.Parallel()
+
+		// arrange
 		dir := os.DirFS(filepath.Join("testdata", "nonexistent"))
+
+		// act
 		_, err := ParseManifestFromFS(dir, "manifest.json")
-		assert.Error(t, err, "Expected error when using invalid directory")
+
+		// assert
+		assert.Error(t, err)
+	})
+}
+
+func TestManifestHTML(t *testing.T) {
+	t.Parallel()
+
+	// arrange
+	content, err := os.ReadFile("testdata/manifest.json")
+	require.NoError(t, err)
+
+	manifest, err := ParseManifest(content)
+	require.NoError(t, err)
+
+	t.Run("resolves CSS and JS tags for entry with imports", func(t *testing.T) {
+		t.Parallel()
+
+		// act
+		css, _, err := manifest.HTML("views/foo.js")
+
+		// assert
+		require.NoError(t, err)
+		assert.Contains(t, css, template.HTML(`<link rel="stylesheet" href="assets/foo-5UjPuW-k.css" />`))
+		assert.Contains(t, css, template.HTML(`<link rel="stylesheet" href="assets/shared-ChJ_j-JJ.css" />`))
+	})
+
+	t.Run("resolves imported dependency CSS", func(t *testing.T) {
+		t.Parallel()
+
+		// act
+		css, _, err := manifest.HTML("views/bar.js")
+
+		// assert
+		require.NoError(t, err)
+		assert.Contains(t, css, template.HTML(`<link rel="stylesheet" href="assets/shared-ChJ_j-JJ.css" />`))
+	})
+
+	t.Run("entry not found returns error", func(t *testing.T) {
+		t.Parallel()
+
+		// act
+		_, _, err := manifest.HTML("nonexistent.js")
+
+		// assert
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "nonexistent.js")
 	})
 }

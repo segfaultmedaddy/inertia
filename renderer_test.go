@@ -76,6 +76,8 @@ func TestNew(t *testing.T) {
 }
 
 func TestFromFS(t *testing.T) {
+	t.Parallel()
+
 	// Test cases
 	tests := []struct {
 		name        string
@@ -112,6 +114,8 @@ func TestFromFS(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name+" (FromFS)", func(t *testing.T) {
+			t.Parallel()
+
 			renderer, err := FromFS(testFS(), tt.path, tt.config)
 
 			if tt.wantErr {
@@ -127,6 +131,8 @@ func TestFromFS(t *testing.T) {
 		})
 
 		t.Run(tt.name+" (MustFromFS)", func(t *testing.T) {
+			t.Parallel()
+
 			if tt.wantPanic {
 				assert.Panics(t, func() {
 					MustFromFS(testFS(), tt.path, tt.config)
@@ -820,4 +826,129 @@ func TestExtractHeaderValueList(t *testing.T) {
 			assert.Equal(t, tt.expected, result, "extracted list should match expected values")
 		})
 	}
+}
+
+func TestRender_WithoutMiddleware(t *testing.T) {
+	t.Parallel()
+
+	// arrange
+	req, w := inertiatest.NewRequest(http.MethodGet, "/", nil)
+
+	// act
+	err := Render(w, req, "TestComponent", RenderContext{})
+
+	// assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "renderer not found in request context")
+}
+
+func TestErrorBagFromRequest(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns error bag from header", func(t *testing.T) {
+		t.Parallel()
+
+		// arrange
+		req, _ := inertiatest.NewRequest(http.MethodGet, "/", &inertiatest.RequestConfig{
+			ErrorBag: "custom_bag",
+		})
+
+		// act
+		result := ErrorBagFromRequest(req)
+
+		// assert
+		assert.Equal(t, "custom_bag", result)
+	})
+
+	t.Run("returns default error bag when header is empty", func(t *testing.T) {
+		t.Parallel()
+
+		// arrange
+		req, _ := inertiatest.NewRequest(http.MethodGet, "/", nil)
+
+		// act
+		result := ErrorBagFromRequest(req)
+
+		// assert
+		assert.Equal(t, DefaultErrorBag, result)
+	})
+}
+
+func TestRedirect(t *testing.T) {
+	t.Parallel()
+
+	t.Run("GET request redirects with 302", func(t *testing.T) {
+		t.Parallel()
+
+		// arrange
+		req, w := inertiatest.NewRequest(http.MethodGet, "/current", nil)
+
+		// act
+		Redirect(w, req, "/target")
+
+		// assert
+		assert.Equal(t, http.StatusFound, w.Code)
+		assert.Equal(t, "/target", w.Header().Get("Location"))
+	})
+
+	t.Run("POST request redirects with 303", func(t *testing.T) {
+		t.Parallel()
+
+		// arrange
+		req, w := inertiatest.NewRequest(http.MethodPost, "/current", nil)
+
+		// act
+		Redirect(w, req, "/target")
+
+		// assert
+		assert.Equal(t, http.StatusSeeOther, w.Code)
+		assert.Equal(t, "/target", w.Header().Get("Location"))
+	})
+}
+
+func TestRenderer_ConcurrentProps(t *testing.T) {
+	t.Parallel()
+
+	// arrange
+	basicTpl := template.Must(template.New("test").Parse(`{{.InertiaBody}}`))
+	renderer := New(basicTpl, &Config{
+		Version:     "1.0.0",
+		RootViewID:  "app",
+		Concurrency: 2,
+	})
+
+	req, w := inertiatest.NewRequest(http.MethodGet, "/", &inertiatest.RequestConfig{
+		Inertia:          true,
+		PartialComponent: "TestComponent",
+		Whitelist:        []string{"a", "b", "c"},
+	})
+
+	rCtx := NewRenderContext(
+		WithProps(Props{
+			NewDeferred("a", LazyFunc(func(context.Context) (any, error) {
+				return "val-a", nil
+			}), &DeferredOptions{Concurrent: true}),
+			NewDeferred("b", LazyFunc(func(context.Context) (any, error) {
+				return "val-b", nil
+			}), &DeferredOptions{Concurrent: true}),
+			NewProp("c", "val-c", nil),
+		}),
+	)
+
+	// act
+	err := renderer.Render(w, req, "TestComponent", rCtx)
+
+	// assert
+	require.NoError(t, err)
+
+	var page map[string]any
+
+	err = json.Unmarshal(w.Body.Bytes(), &page)
+	require.NoError(t, err)
+
+	props, ok := page["props"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "val-a", props["a"])
+	assert.Equal(t, "val-b", props["b"])
+	assert.Equal(t, "val-c", props["c"])
 }
