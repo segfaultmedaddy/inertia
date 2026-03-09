@@ -54,6 +54,7 @@ func (s *ssr) Render(ctx context.Context, p *inertiabase.Page) (*SSRTemplateData
 
 	r.Header.Set(inertiaheader.HeaderContentType, inertiaheader.ContentTypeJSON)
 
+	// #nosec G704 - URL is set by application during initialization, not user-provided
 	resp, err := s.client.Do(r)
 	if err != nil {
 		return nil, fmt.Errorf("inertia: failed to make HTTP request: %w", err)

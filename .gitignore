@@ -1,5 +1,4 @@
 # Created by https://www.toptal.com/developers/gitignore/api/go,node,direnv,macos,linux,vim
-# Edit at https://www.toptal.com/developers/gitignore?templates=go,node,direnv,macos,linux,vim
 
 ### direnv ###
 .direnv
@@ -236,4 +235,8 @@ tags
 # Persistent undo
 [._]*.un~
 
-# End of https://www.toptal.com/developers/gitignore/api/go,node,direnv,macos,linux,vim
+### devenv ###
+.devenv
+.devenv.flake.nix
+.pre-commit-config.yaml
+.devenv.*

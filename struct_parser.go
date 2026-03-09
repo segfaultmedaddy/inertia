@@ -68,7 +68,7 @@ var lazyType = reflect.TypeFor[Lazy]() //nolint:gochecknoglobals
 //	}
 func ParseStruct(v any) (Props, error) {
 	val := reflect.ValueOf(v)
-	if val.Kind() != reflect.Ptr {
+	if val.Kind() != reflect.Pointer {
 		return nil, errors.New("msg must be a pointer")
 	}
 

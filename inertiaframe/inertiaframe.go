@@ -425,7 +425,10 @@ func newHandler[M any](
 				{
 					d("received JSON request")
 
-					if err := json.UnmarshalRead(r.Body, &msg, jsonUnmarshalOptions...); err != nil {
+					if err := json.UnmarshalRead(
+						r.Body,
+						&msg,
+						jsonUnmarshalOptions...); err != nil {
 						return fmt.Errorf("inertiaframe: failed to decode request: %w", err)
 					}
 				}

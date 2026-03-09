@@ -1,0 +1,8 @@
+inputs:
+    go-overlay:
+        url: github:purpleclay/go-overlay
+        inputs:
+            nixpkgs:
+                follows: nixpkgs
+        overlays:
+            - default

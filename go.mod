@@ -1,10 +1,10 @@
 module go.segfaultmedaddy.com/inertia
 
-go 1.25
+go 1.26.1
 
 require (
-	github.com/alitto/pond/v2 v2.5.0
-	github.com/go-json-experiment/json v0.0.0-20251027170946-4849db3c2f7e
+	github.com/alitto/pond/v2 v2.7.0
+	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433
 	github.com/go-playground/form/v4 v4.3.0
 	github.com/stretchr/testify v1.11.1
 	go.inout.gg/foundations v0.0.0-20251108094430-2c59a9842cd4
